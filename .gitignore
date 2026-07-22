@@ -38,3 +38,7 @@ chroma*/
 # Claude Code / harness session state (local only)
 .claude/
 .harness-mem/
+
+# Playwright MCP artifacts (local screenshots/snapshots)
+.playwright-mcp/
+bidmate-shell.png

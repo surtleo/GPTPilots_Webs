@@ -1,9 +1,7 @@
+import { AppShell } from '@/components/app-shell'
+
 function App() {
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-white text-gray-900">
-      <h1 className="text-2xl font-bold">BidMate</h1>
-    </div>
-  )
+  return <AppShell />
 }
 
 export default App
