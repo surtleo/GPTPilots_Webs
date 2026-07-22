@@ -42,3 +42,4 @@ chroma*/
 # Playwright MCP artifacts (local screenshots/snapshots)
 .playwright-mcp/
 bidmate-shell.png
+smoke-*.png
