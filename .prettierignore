@@ -1,0 +1,8 @@
+dist
+node_modules
+*.local
+package-lock.json
+
+# Harness / editor state (never format or commit)
+.claude
+.harness-mem
