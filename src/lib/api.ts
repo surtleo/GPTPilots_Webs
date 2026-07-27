@@ -138,6 +138,23 @@ export async function ask(
 /**
  * 공고 카드 — GET /rfps 계약. 백엔드가 meta.json에서 뽑아주는 값이라 대부분 null 가능.
  * doc_id는 /ask의 active_doc_id와 동일한 opaque id로, 상세 화면 채팅의 활성 문서로 쓴다.
+ *
+ * ┌─ BLOCKED(백엔드-머지대기) ─────────────────────────────────────────────┐
+ * │ 이 코드가 부르는 GET /rfps · GET /rfps/{doc_id} 는 **백엔드 main에 아직 │
+ * │ 없다.** 백엔드 레포 surtleo/GPTPilots_Project 의 브랜치                │
+ * │ `feat/rfp-cards-api`(커밋 94c3965) 에만 있고 PR이 아직 안 올라갔다.    │
+ * │                                                                        │
+ * │ 증상: 백엔드 main을 띄우면 공고 목록·상세 화면이 404 → "존재하지 않는  │
+ * │ 공고" / "공고 목록을 불러오지 못했습니다" 로 뜬다. 채팅(/ask)만 정상.  │
+ * │                                                                        │
+ * │ 해결: 백엔드 `feat/rfp-cards-api` 를 main에 머지하면 끝. 프론트는      │
+ * │ 고칠 것이 없다. 확인 명령:                                             │
+ * │   curl -s -o /dev/null -w '%{http_code}' \                             │
+ * │     -H "X-API-Token: $TOKEN" http://localhost:8000/rfps                │
+ * │   → 200 이면 해결됨, 404 면 아직 미머지.                               │
+ * │                                                                        │
+ * │ 배경·후속 작업은 레포 루트 CLAUDE.md 의 "현재 상태" 절 참조.           │
+ * └────────────────────────────────────────────────────────────────────────┘
  */
 export interface RfpCard {
   doc_id: string
