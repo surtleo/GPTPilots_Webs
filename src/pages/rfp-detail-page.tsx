@@ -1,23 +1,32 @@
 import { useState, type KeyboardEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { FileText, Paperclip, RotateCcw, SendHorizontal } from 'lucide-react'
+import { AlertCircle, FileText, RotateCcw, SendHorizontal } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { TopNav } from '@/components/layout/top-nav'
 import { ChatView } from '@/components/chat-view'
 import { useChat } from '@/hooks/use-chat'
-import { MOCK_RFP_DETAILS, MOCK_RFPS } from '@/lib/mock-data'
+import { useRfp, type LoadError } from '@/hooks/use-rfps'
+import { deadlineBadge, formatAmount, formatDate } from '@/lib/format'
+import type { RfpCard } from '@/lib/api'
+
+/** 문서를 특정한 상태에서 바로 던질 수 있는 정적 프롬프트 (사업명은 백엔드 doc_id로 고정된다). */
+const SUGGESTED_QUESTIONS = ['주요 과업 내용은?', '참가 자격 요건은?', '평가 기준이 어떻게 되나요?']
 
 /**
- * 화면 4 — RFP 상세(좌측, 목업) + AI 상담 채팅(우측).
- * 채팅 패널만 실제 백엔드(useChat → POST /ask)와 연동된다 (spec §13-2·§13-6).
- * 좌측 사업 상세는 추천 백엔드가 없어 목업 데이터를 사용한다.
+ * 화면 4 — RFP 상세(좌측) + AI 상담 채팅(우측). 둘 다 실제 백엔드 연동이다.
+ * 좌측은 GET /rfps/{doc_id}, 우측은 POST /ask (spec §13-2·§13-6).
+ * URL의 :id는 인코딩된 doc_id — 그대로 카드 조회와 채팅의 활성 문서로 쓴다.
  */
 export function RfpDetailPage() {
-  const { id } = useParams<{ id: string }>()
-  const detail = (id && MOCK_RFP_DETAILS[id]) || MOCK_RFP_DETAILS[MOCK_RFPS[0].id]
-  const chat = useChat()
+  // useParams는 이미 디코딩된 값을 준다 — 여기서 또 decodeURIComponent를 하면
+  // doc_id에 '%'가 들어간 순간 URIError로 화면이 통째로 죽는다.
+  const { id: docId } = useParams<{ id: string }>()
+  const { card, loading, error } = useRfp(docId)
+  const chat = useChat(card?.doc_id ?? null)
+
+  const title = card?.사업명 ?? docId ?? '공고'
 
   return (
     <div className="flex min-h-screen flex-col bg-secondary">
@@ -49,23 +58,38 @@ export function RfpDetailPage() {
       </div>
 
       <main className="mx-auto flex w-full max-w-6xl flex-1 gap-6 px-6 py-6">
-        <RfpPanel detail={detail} />
+        <RfpPanel card={card} loading={loading} error={error} />
 
         <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-background">
           <div className="border-b border-border px-5 py-3 text-sm text-muted-foreground">
-            <span className="font-medium text-foreground">{detail.title}</span>에 대해 질문하면
-            근거(출처·인용)와 함께 답합니다
+            {card ? (
+              <>
+                <span className="font-medium text-foreground">{title}</span>에 대해 질문하면
+                근거(출처·인용)와 함께 답합니다
+              </>
+            ) : (
+              '공고를 확인한 뒤 질문할 수 있습니다'
+            )}
           </div>
           <div className="flex-1 overflow-y-auto px-5 py-5">
-            <ChatView messages={chat.messages} loading={chat.loading} error={chat.error} />
+            <ChatView
+              messages={chat.messages}
+              loading={chat.loading}
+              error={chat.error}
+              emptyHint={
+                card
+                  ? '이 공고가 활성 문서로 지정돼 있어, 사업명을 적지 않아도 이 문서를 근거로 답변합니다. 답변 생성에는 약 15초가 걸릴 수 있습니다.'
+                  : '공고를 불러오지 못해 질문을 받을 수 없습니다.'
+              }
+            />
           </div>
-          {chat.messages.length === 0 && (
+          {chat.messages.length === 0 && card && (
             <div className="flex flex-wrap gap-2 px-5 pb-1">
-              {detail.suggestedQuestions.map((q) => (
+              {SUGGESTED_QUESTIONS.map((q) => (
                 <button
                   key={q}
                   type="button"
-                  onClick={() => void chat.send(`${detail.title} ${q}`)}
+                  onClick={() => void chat.send(q)}
                   className="rounded-full border border-border px-3.5 py-1.5 text-sm transition-colors hover:bg-muted"
                 >
                   {q}
@@ -73,27 +97,70 @@ export function RfpDetailPage() {
               ))}
             </div>
           )}
-          <Composer onSend={chat.send} loading={chat.loading} />
+          <Composer onSend={chat.send} loading={chat.loading} disabled={!card} />
         </div>
       </main>
     </div>
   )
 }
 
-function RfpPanel({ detail }: { detail: (typeof MOCK_RFP_DETAILS)[string] }) {
+function RfpPanel({
+  card,
+  loading,
+  error,
+}: {
+  card: RfpCard | null
+  loading: boolean
+  error: LoadError | null
+}) {
   return (
     <aside className="w-[380px] shrink-0 overflow-y-auto rounded-xl border border-border bg-background p-6">
+      {loading ? (
+        <PanelSkeleton />
+      ) : error || !card ? (
+        <PanelError error={error} />
+      ) : (
+        <PanelBody card={card} />
+      )}
+      <Link
+        to="/recommendations"
+        className="mt-6 inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
+      >
+        ← 공고 목록으로
+      </Link>
+    </aside>
+  )
+}
+
+function PanelBody({ card }: { card: RfpCard }) {
+  const deadline = deadlineBadge(card.마감일)
+  const conditions = [
+    { label: '사업 규모', value: formatAmount(card.금액) },
+    { label: '공고번호', value: card.공고번호 ?? '—' },
+    { label: '공개일', value: formatDate(card.공개일) },
+    { label: '마감일', value: `${formatDate(card.마감일)} · ${deadline.label}` },
+    { label: '원문 형식', value: card.파일형식?.toUpperCase() ?? '—' },
+  ]
+
+  return (
+    <>
       <h1 className="font-heading text-h3 leading-snug font-semibold tracking-tight">
-        {detail.title}
+        {card.사업명 ?? card.doc_id}
       </h1>
-      <p className="mt-1 text-sm text-muted-foreground">{detail.org}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{card.발주기관 ?? '발주기관 미상'}</p>
 
       <h2 className="mt-6 mb-2 text-sm font-semibold">사업 개요</h2>
-      <p className="text-sm leading-relaxed text-foreground">{detail.overview}</p>
+      {card.사업요약 ? (
+        <p className="text-sm leading-relaxed whitespace-pre-line text-foreground">
+          {card.사업요약}
+        </p>
+      ) : (
+        <p className="text-sm text-muted-foreground">요약이 제공되지 않는 공고입니다.</p>
+      )}
 
       <h2 className="mt-6 mb-2 text-sm font-semibold">주요 조건</h2>
       <div className="overflow-hidden rounded-md border border-border">
-        {detail.conditions.map((c, i) => (
+        {conditions.map((c, i) => (
           <div key={c.label} className={`flex text-sm ${i > 0 ? 'border-t border-border' : ''}`}>
             <span className="w-28 shrink-0 bg-muted px-3 py-2 text-muted-foreground">
               {c.label}
@@ -103,42 +170,54 @@ function RfpPanel({ detail }: { detail: (typeof MOCK_RFP_DETAILS)[string] }) {
         ))}
       </div>
 
-      <h2 className="mt-6 mb-2 text-sm font-semibold">첨부파일</h2>
-      <div className="flex flex-col gap-2">
-        {detail.attachments.map((a) => (
-          <div
-            key={a.name}
-            className="flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm"
-          >
-            <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">{a.name}</span>
-            <span className="ml-auto font-mono text-xs text-muted-foreground">{a.size}</span>
-          </div>
-        ))}
-      </div>
+      <p className="mt-4 text-xs text-muted-foreground">
+        RFP 원문은 내려받을 수 없습니다. 세부 요건은 오른쪽 채팅으로 물어보면 근거와 함께 답합니다.
+      </p>
+    </>
+  )
+}
 
-      <Link
-        to="/recommendations"
-        className="mt-6 inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground"
-      >
-        ← 추천 목록으로
-      </Link>
-    </aside>
+function PanelSkeleton() {
+  return (
+    <div className="space-y-3">
+      <div className="h-6 w-4/5 animate-pulse rounded bg-muted" />
+      <div className="h-4 w-1/2 animate-pulse rounded bg-muted" />
+      <div className="h-24 w-full animate-pulse rounded bg-muted" />
+      <div className="h-32 w-full animate-pulse rounded bg-muted" />
+    </div>
+  )
+}
+
+function PanelError({ error }: { error: LoadError | null }) {
+  const notFound = error?.kind === 'notfound'
+  return (
+    <div className="py-6 text-center">
+      <AlertCircle className="mx-auto size-8 text-destructive" />
+      <p className="mt-3 font-medium">
+        {notFound ? '존재하지 않는 공고입니다' : '공고를 불러오지 못했습니다'}
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {error?.message ?? '잠시 후 다시 시도해 주세요.'}
+      </p>
+    </div>
   )
 }
 
 function Composer({
   onSend,
   loading,
+  disabled,
 }: {
   onSend: (text: string) => void | Promise<void>
   loading: boolean
+  disabled?: boolean
 }) {
   const [text, setText] = useState('')
+  const blocked = loading || disabled
 
   const submit = () => {
     const value = text.trim()
-    if (!value || loading) return
+    if (!value || blocked) return
     void onSend(value)
     setText('')
   }
@@ -158,7 +237,7 @@ function Composer({
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
-          disabled={loading}
+          disabled={blocked}
           placeholder="질문을 입력하세요… (Enter 전송 · Shift+Enter 줄바꿈)"
           className="max-h-40 min-h-11 resize-none"
           aria-label="질문 입력"
@@ -166,7 +245,7 @@ function Composer({
         <Button
           size="lg"
           onClick={submit}
-          disabled={loading || text.trim().length === 0}
+          disabled={blocked || text.trim().length === 0}
           className="gap-2"
         >
           <SendHorizontal className="size-4" />

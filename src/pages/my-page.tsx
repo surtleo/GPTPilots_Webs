@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { ArrowRight, Bookmark, MessageSquareText, UserRound } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -97,10 +96,12 @@ function ConversationHistory() {
               </div>
               <div className="mt-2 text-sm text-foreground">{c.preview}</div>
             </div>
+            {/* 대화 이력 저장 백엔드가 없어 실제 대화로 복귀할 수 없다 — 목업임을 드러내고 비활성. */}
             <Button
-              render={<Link to={`/rfp/${c.rfpId}`} />}
               variant="outline"
               size="sm"
+              disabled
+              title="대화 이력 저장 기능은 준비 중입니다"
               className="shrink-0 gap-1.5"
             >
               이어서 대화하기 <ArrowRight className="size-3.5" />
