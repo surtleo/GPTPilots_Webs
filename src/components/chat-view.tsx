@@ -217,9 +217,10 @@ function EmptyState({ hint }: { hint?: string }) {
         <h2 className="font-heading text-h2 font-semibold tracking-tight">
           입찰 문서에 대해 물어보세요
         </h2>
+        {/* 소요시간 안내는 기본 문구에만 붙인다 — 질문을 받을 수 없는 상태에서는 어색해진다. */}
         <p className="text-base text-muted-foreground">
-          {hint ?? '질문에 사업명을 포함하면 해당 문서를 근거(출처·인용)와 함께 답변합니다.'} 답변
-          생성에는 약 15초가 걸릴 수 있습니다.
+          {hint ??
+            '질문에 사업명을 포함하면 해당 문서를 근거(출처·인용)와 함께 답변합니다. 답변 생성에는 약 15초가 걸릴 수 있습니다.'}
         </p>
       </div>
       <div className="grid w-full max-w-3xl gap-3 sm:grid-cols-3">

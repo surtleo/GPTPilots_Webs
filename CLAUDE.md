@@ -83,5 +83,8 @@ curl -s -o /dev/null -w '%{http_code}\n' \
 - **RFP 원문·사업명 등 NDA 데이터를 코드에 하드코딩하지 마라.** 전부 런타임에 로컬 백엔드에서만
   받아온다.
 - 백엔드 응답의 한글 키(`사업명`·`발주기관`·`citations` 등)는 계약이다 — 임의로 영문화하지 말 것.
-- `doc_id` 는 공백·슬래시를 포함할 수 있는 장문 한글 opaque id다. URL에 쓸 때 반드시
-  `encodeURIComponent` 로 감쌀 것.
+- `doc_id` 는 공백·슬래시·`%` 를 포함할 수 있는 장문 한글 opaque id다.
+  - URL을 **만들 때**는 반드시 `encodeURIComponent` 로 감쌀 것 (`Link to={...}`, fetch 경로).
+  - URL에서 **읽을 때**는 `useParams` 값을 그대로 쓸 것. react-router가 이미 디코딩해서
+    준다 — 여기서 또 `decodeURIComponent` 를 하면 `%` 가 든 id에서 `URIError` 로 화면이
+    통째로 죽는다(실제로 겪음).

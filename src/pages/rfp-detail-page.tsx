@@ -20,8 +20,9 @@ const SUGGESTED_QUESTIONS = ['주요 과업 내용은?', '참가 자격 요건�
  * URL의 :id는 인코딩된 doc_id — 그대로 카드 조회와 채팅의 활성 문서로 쓴다.
  */
 export function RfpDetailPage() {
-  const { id } = useParams<{ id: string }>()
-  const docId = id ? decodeURIComponent(id) : undefined
+  // useParams는 이미 디코딩된 값을 준다 — 여기서 또 decodeURIComponent를 하면
+  // doc_id에 '%'가 들어간 순간 URIError로 화면이 통째로 죽는다.
+  const { id: docId } = useParams<{ id: string }>()
   const { card, loading, error } = useRfp(docId)
   const chat = useChat(card?.doc_id ?? null)
 
@@ -77,7 +78,7 @@ export function RfpDetailPage() {
               error={chat.error}
               emptyHint={
                 card
-                  ? '이 공고가 활성 문서로 지정돼 있어, 사업명을 적지 않아도 이 문서를 근거로 답변합니다.'
+                  ? '이 공고가 활성 문서로 지정돼 있어, 사업명을 적지 않아도 이 문서를 근거로 답변합니다. 답변 생성에는 약 15초가 걸릴 수 있습니다.'
                   : '공고를 불러오지 못해 질문을 받을 수 없습니다.'
               }
             />
