@@ -9,9 +9,11 @@ interface ChatViewProps {
   messages: ChatMessage[]
   loading: boolean
   error: ChatError | null
+  /** 빈 상태 안내 문구. 문서가 이미 고정된 화면에서는 "사업명을 포함하라"가 틀린 안내가 된다. */
+  emptyHint?: string
 }
 
-export function ChatView({ messages, loading, error }: ChatViewProps) {
+export function ChatView({ messages, loading, error, emptyHint }: ChatViewProps) {
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -19,7 +21,7 @@ export function ChatView({ messages, loading, error }: ChatViewProps) {
   }, [messages, loading, error])
 
   if (messages.length === 0 && !loading && !error) {
-    return <EmptyState />
+    return <EmptyState hint={emptyHint} />
   }
 
   return (
@@ -163,6 +165,7 @@ function LoadingBubble() {
 
 const ERROR_LABEL: Record<ChatError['kind'], string> = {
   auth: '인증 오류 (401)',
+  notfound: '대상을 찾을 수 없음 (404)',
   validation: '입력 오류 (422)',
   rate: '요청 제한 · 비용 상한 (429)',
   server: '백엔드 처리 실패 (503)',
@@ -186,7 +189,7 @@ function ErrorBanner({ error }: { error: ChatError }) {
   )
 }
 
-function EmptyState() {
+function EmptyState({ hint }: { hint?: string }) {
   const routes = [
     {
       icon: Quote,
@@ -215,8 +218,8 @@ function EmptyState() {
           입찰 문서에 대해 물어보세요
         </h2>
         <p className="text-base text-muted-foreground">
-          질문에 사업명을 포함하면 해당 문서를 근거(출처·인용)와 함께 답변합니다. 답변 생성에는 약
-          15초가 걸릴 수 있습니다.
+          {hint ?? '질문에 사업명을 포함하면 해당 문서를 근거(출처·인용)와 함께 답변합니다.'} 답변
+          생성에는 약 15초가 걸릴 수 있습니다.
         </p>
       </div>
       <div className="grid w-full max-w-3xl gap-3 sm:grid-cols-3">
