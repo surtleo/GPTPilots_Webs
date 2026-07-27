@@ -35,28 +35,21 @@ npm run format       # prettier --write .
 목록·상세는 브라우저에서 실데이터로 동작 확인 완료. 상세 화면은 해당 공고를
 활성 문서로 고정하므로 사업명 없이 질문해도 반문 없이 근거 답변이 나온다.
 
-### 🚧 [미해결 1] 백엔드 `/rfps` 가 아직 main에 없다 — 최우선
+### ✅ [해결됨] 백엔드 `/rfps` 머지 완료
 
-**이게 지금 깨져 있는 유일한 부분이다.**
+프론트가 호출하는 `GET /rfps`·`GET /rfps/{doc_id}` 는 백엔드
+`surtleo/GPTPilots_Project` **PR #20 (main `a9d917c`)** 로 머지됐다.
+백엔드 main을 그대로 띄우면 동작한다 — 목록 100건·검색·상세·채팅 전부 브라우저 확인 완료.
 
-- 프론트는 `GET /rfps`·`GET /rfps/{doc_id}` 를 호출한다 (`src/lib/api.ts` → `fetchRfps`/`fetchRfp`).
-- 이 엔드포인트는 백엔드 `surtleo/GPTPilots_Project` 의 브랜치 **`feat/rfp-cards-api`
-  (커밋 `94c3965`)** 에만 있다. **PR이 아직 안 올라갔고 main에 머지되지 않았다.**
-- 그래서 백엔드 main을 띄우면 공고 목록·상세가 **404** 로 뜬다. 채팅(`/ask`)만 정상.
-
-확인:
+**백엔드 요구 버전**: PR #20 이후. 그 이전으로 띄우면 목록·상세가 404가 된다(채팅은 정상).
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' \
   -H "X-API-Token: devtoken" http://localhost:8000/rfps
-# 200 → 해결됨 / 404 → 아직 미머지
+# 200 → 정상 / 404 → 백엔드가 구버전
 ```
 
-**해결 방법**: 백엔드 `feat/rfp-cards-api` 를 main에 머지하면 끝이다.
-**프론트에서 고칠 것은 없다** — 계약이 이미 맞춰져 있다.
-(그 브랜치는 `src/api/cards.py` 신설 + `tests/test_api_cards.py` 19개 통과 상태.)
-
-### 🚧 [미해결 2] 이 레포에 push 권한이 없다
+### 🚧 [미해결] 이 레포에 push 권한이 없다 — 남은 유일한 블로커
 
 `beomjinkim2000` 계정은 `surtleo/GPTPilots_Webs` 에 **pull만 가능**(`push: false`).
 그래서 `feat/rfp-list-api` 브랜치를 push하지 못했고 PR도 못 올렸다 — 커밋은 로컬에만 있다.
