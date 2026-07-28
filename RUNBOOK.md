@@ -31,6 +31,40 @@ BidMate(프론트) + RFP RAG 백엔드를 **로컬에서** 띄워 대화형 데�
 
 ---
 
+## 2-1. 한 번에 기동 (권장)
+
+터미널 하나에서 프론트를 띄운다. **백엔드는 "떠 있으면 붙고, 없으면 편의상 같이 띄운다"** —
+백엔드를 직접 켜고 끄고 있다면(`:8000` 점유) 런처는 건드리지 않고 프론트만 붙는다.
+`Ctrl+C` 한 번으로 이 런처가 띄운 것만 정리된다.
+
+```bash
+cd bidmate-web
+cp .env.example .env         # 최초 1회 — VITE_API_TOKEN 을 채운다
+./scripts/dev.sh
+```
+
+런처가 하는 일:
+
+- `.env` 존재·`VITE_API_TOKEN` 채움 확인, 백엔드 토큰과 **불일치하면 기동 전에 중단**(401 예방)
+- `node_modules` 없으면 `npm install`
+- 백엔드 기동 후 `/health` 200 까지 대기(최대 180초), 이어서 `GET /rfps` 로 **백엔드 버전 확인**
+  (200이 아니면 구버전 경고 — 목록·상세가 404 가 된다)
+- 프론트 dev 서버 기동 → http://localhost:5173
+- `:8000` 이 이미 떠 있거나 백엔드 레포를 못 찾으면 **백엔드는 건너뛰고 프론트만** 붙인다
+
+옵션:
+
+```bash
+./scripts/dev.sh --front-only        # 백엔드는 절대 건드리지 않음
+./scripts/dev.sh --back-only         # 백엔드만
+WEB_SHARED_TOKEN=mytoken ./scripts/dev.sh
+BACKEND_DIR=/path/to/GPTPilots_Project FRONT_PORT=5174 ./scripts/dev.sh
+```
+
+아래 3·4절은 터미널을 나눠 개별 기동하거나 트러블슈팅할 때의 절차다.
+
+---
+
 ## 3. 백엔드 기동 (터미널 A)
 
 warmup(모델·Chroma 로딩)에 **60~90초** 걸린다. `/health` 가 `200` 이면 준비 완료.
