@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
-# BidMate 로컬 데모 — 한 번에 기동하는 런처.
-# 백엔드(FastAPI :8000)와 프론트(Vite :5173)를 함께 띄우고, Ctrl+C 한 번으로 둘 다 정리한다.
+# BidMate 로컬 데모 — 프론트(Vite :5173) 기동 런처.
+# 백엔드(FastAPI :8000)는 "떠 있으면 붙고, 없으면 편의상 같이 띄운다".
+# :8000 이 이미 물려 있거나 백엔드 레포를 못 찾으면 프론트만 띄우므로,
+# 백엔드를 따로 켜고 끄는 워크플로우를 방해하지 않는다.
 # 개별 기동·트러블슈팅 절차는 RUNBOOK.md 참고.
 #
 # 사용:
-#   ./scripts/dev.sh                                   # 백엔드 + 프론트
-#   ./scripts/dev.sh --front-only                      # 프론트만 (백엔드는 이미 떠 있음)
+#   ./scripts/dev.sh                                   # 프론트 (+ 필요하면 백엔드)
+#   ./scripts/dev.sh --front-only                      # 백엔드는 절대 건드리지 않음
 #   ./scripts/dev.sh --back-only                       # 백엔드만
 #   WEB_SHARED_TOKEN=mytoken ./scripts/dev.sh          # 토큰 지정 (프론트 .env 와 동일해야 함)
 #   BACKEND_DIR=/path/to/GPTPilots_Project ./scripts/dev.sh
@@ -48,23 +50,43 @@ die() {
 
 [ -f "$ROOT_DIR/.env" ] || die ".env 가 없습니다. 'cp .env.example .env' 후 VITE_API_TOKEN 을 채우세요."
 
-ENV_TOKEN="$(grep -E '^VITE_API_TOKEN=' "$ROOT_DIR/.env" | head -1 | cut -d= -f2- | tr -d '[:space:]')"
+# 따옴표·줄끝 주석까지 벗겨야 실제 값과 비교가 맞는다.
+ENV_TOKEN="$(
+  grep -E '^[[:space:]]*VITE_API_TOKEN=' "$ROOT_DIR/.env" | head -1 |
+    cut -d= -f2- | sed -e 's/[[:space:]]*#.*$//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+      -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+)"
 if [ -z "$ENV_TOKEN" ]; then
   die ".env 의 VITE_API_TOKEN 이 비어 있습니다 (백엔드 WEB_SHARED_TOKEN 과 같은 값이어야 함)."
 fi
+port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+
+# 백엔드는 "이 런처가 켜는 것"이 아니라 "떠 있으면 붙는 것"에 가깝다.
+# 이미 :PORT 가 물려 있거나(직접 켜둔 경우) 백엔드 레포가 없으면 프론트만 띄운다.
+BACKEND_DIR="${BACKEND_DIR:-$(cd "$ROOT_DIR/.." && pwd)/GPTPilots_Project}"
+
+if [ "$RUN_BACK" -eq 1 ] && port_busy "$PORT"; then
+  log ":$PORT 이 이미 사용 중 — 백엔드는 직접 띄운 것으로 보고 건너뜁니다."
+  RUN_BACK=0
+elif [ "$RUN_BACK" -eq 1 ] && [ ! -d "$BACKEND_DIR" ]; then
+  log "백엔드 레포가 없어 프론트만 띄웁니다: $BACKEND_DIR"
+  log "  백엔드를 따로 띄우고 있다면 그대로 두면 되고, 여기서 같이 띄우려면"
+  log "  BACKEND_DIR=/path/to/GPTPilots_Project ./scripts/dev.sh"
+  RUN_BACK=0
+fi
+
 if [ "$RUN_BACK" -eq 1 ] && [ "$ENV_TOKEN" != "$TOKEN" ]; then
   die "토큰 불일치 — .env 의 VITE_API_TOKEN='$ENV_TOKEN' vs 백엔드 '$TOKEN'. 그대로 두면 401 이 납니다.
      해결: WEB_SHARED_TOKEN=$ENV_TOKEN ./scripts/dev.sh"
 fi
 
-port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
-
-if [ "$RUN_BACK" -eq 1 ] && port_busy "$PORT"; then
-  log ":$PORT 이 이미 사용 중 — 백엔드는 이미 떠 있는 것으로 보고 건너뜁니다."
-  RUN_BACK=0
-fi
 if [ "$RUN_FRONT" -eq 1 ] && port_busy "$FRONT_PORT"; then
   die ":$FRONT_PORT 이 이미 사용 중입니다. 기존 dev 서버를 끄거나 FRONT_PORT 를 지정하세요."
+fi
+
+if [ "$RUN_BACK" -eq 0 ] && [ "$RUN_FRONT" -eq 0 ]; then
+  log "띄울 게 없습니다 — 이미 다 떠 있거나 옵션이 서로 상쇄됐습니다."
+  exit 0
 fi
 
 [ -d "$ROOT_DIR/node_modules" ] || {
@@ -76,11 +98,18 @@ fi
 
 BACK_PID=""
 FRONT_PID=""
+# npm run dev 는 서브셸 → npm → vite 로 이어져서, 최상위만 kill 하면 vite 가 :5173 을
+# 물고 살아남는다. 자식부터 재귀로 내려가며 정리한다.
+kill_tree() {
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null); do kill_tree "$child"; done
+  kill "$pid" 2>/dev/null || true
+}
 cleanup() {
   trap - INT TERM EXIT
   log "종료 중..."
-  [ -n "$FRONT_PID" ] && kill "$FRONT_PID" 2>/dev/null || true
-  [ -n "$BACK_PID" ] && kill "$BACK_PID" 2>/dev/null || true
+  [ -n "$FRONT_PID" ] && kill_tree "$FRONT_PID"
+  [ -n "$BACK_PID" ] && kill_tree "$BACK_PID"
   wait 2>/dev/null || true
 }
 trap cleanup INT TERM EXIT
@@ -89,7 +118,7 @@ trap cleanup INT TERM EXIT
 
 if [ "$RUN_BACK" -eq 1 ]; then
   log "백엔드 기동 — warmup 에 60~90초 걸립니다."
-  WEB_SHARED_TOKEN="$TOKEN" PORT="$PORT" "$SCRIPT_DIR/dev-backend.sh" &
+  WEB_SHARED_TOKEN="$TOKEN" PORT="$PORT" BACKEND_DIR="$BACKEND_DIR" "$SCRIPT_DIR/dev-backend.sh" &
   BACK_PID=$!
 
   waited=0
@@ -119,4 +148,8 @@ if [ "$RUN_FRONT" -eq 1 ]; then
 fi
 
 log "Ctrl+C 로 전부 종료합니다."
-wait
+
+# `wait` 로 막으면 bash 가 트랩 실행을 그 자식이 끝날 때까지 미룬다 — Ctrl+C 가 먹지 않는다.
+# 짧은 sleep 으로 폴링하면 최대 1초 안에 트랩이 돈다.
+alive() { [ -n "$1" ] && kill -0 "$1" 2>/dev/null; }
+while alive "$FRONT_PID" || alive "$BACK_PID"; do sleep 1; done

@@ -33,7 +33,9 @@ BidMate(프론트) + RFP RAG 백엔드를 **로컬에서** 띄워 대화형 데�
 
 ## 2-1. 한 번에 기동 (권장)
 
-터미널 하나에서 백엔드·프론트를 함께 띄운다. `Ctrl+C` 한 번으로 둘 다 정리된다.
+터미널 하나에서 프론트를 띄운다. **백엔드는 "떠 있으면 붙고, 없으면 편의상 같이 띄운다"** —
+백엔드를 직접 켜고 끄고 있다면(`:8000` 점유) 런처는 건드리지 않고 프론트만 붙는다.
+`Ctrl+C` 한 번으로 이 런처가 띄운 것만 정리된다.
 
 ```bash
 cd bidmate-web
@@ -48,12 +50,12 @@ cp .env.example .env         # 최초 1회 — VITE_API_TOKEN 을 채운다
 - 백엔드 기동 후 `/health` 200 까지 대기(최대 180초), 이어서 `GET /rfps` 로 **백엔드 버전 확인**
   (200이 아니면 구버전 경고 — 목록·상세가 404 가 된다)
 - 프론트 dev 서버 기동 → http://localhost:5173
-- `:8000` 이 이미 떠 있으면 백엔드는 건너뛰고 프론트만 붙인다
+- `:8000` 이 이미 떠 있거나 백엔드 레포를 못 찾으면 **백엔드는 건너뛰고 프론트만** 붙인다
 
 옵션:
 
 ```bash
-./scripts/dev.sh --front-only        # 백엔드가 이미 떠 있을 때
+./scripts/dev.sh --front-only        # 백엔드는 절대 건드리지 않음
 ./scripts/dev.sh --back-only         # 백엔드만
 WEB_SHARED_TOKEN=mytoken ./scripts/dev.sh
 BACKEND_DIR=/path/to/GPTPilots_Project FRONT_PORT=5174 ./scripts/dev.sh
