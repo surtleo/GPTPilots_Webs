@@ -71,8 +71,7 @@ function RecommendedList({ profileText }: { profileText: string }) {
           )}
         </div>
         <p className="mb-5 text-sm text-muted-foreground">
-          작성하신 회사 프로필로 참가자격을 대조했습니다. 자격이 안 되는 공고는 목록에서
-          제외됩니다.
+          작성하신 회사 프로필로 참가자격을 대조했습니다. 자격이 안 되는 공고는 목록에서 제외됩니다.
         </p>
 
         {showSkeleton && <ProgressPanel progress={progress} />}
@@ -138,8 +137,7 @@ function ProgressPanel({ progress }: { progress: RecoProgress }) {
         />
       </div>
       <p className="mt-3.5 text-xs text-muted-foreground">
-        한 번 받으면 프로필을 바꾸기 전까지 다시 안 부릅니다. 다른 탭에 갔다 오셔도
-        계속 진행돼요.
+        한 번 받으면 프로필을 바꾸기 전까지 다시 안 부릅니다. 다른 탭에 갔다 오셔도 계속 진행돼요.
       </p>
     </div>
   )
@@ -189,9 +187,7 @@ function RecommendationCard({ item }: { item: RecommendationItem }) {
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="font-heading text-lg font-semibold">
-            {item.사업명 ?? item.doc_id}
-          </span>
+          <span className="font-heading text-lg font-semibold">{item.사업명 ?? item.doc_id}</span>
           {confirmed ? (
             <Badge variant="accent" className="gap-1">
               <CheckCircle2 className="size-3.5" /> 적격
@@ -201,7 +197,9 @@ function RecommendationCard({ item }: { item: RecommendationItem }) {
               <CircleHelp className="size-3.5" /> 적격 · 근거 부족
             </Badge>
           ) : (
-            <Badge variant="outline">확인필요 · {item.missing_count}/{item.total} 부족</Badge>
+            <Badge variant="outline">
+              확인필요 · {item.missing_count}/{item.total} 부족
+            </Badge>
           )}
           <Badge variant={deadline.past ? 'secondary' : 'outline'}>{deadline.label}</Badge>
         </div>
@@ -253,21 +251,25 @@ function RecommendationCard({ item }: { item: RecommendationItem }) {
             )}
             {item.unclear_count > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                프로필에 언급이 없어 확인 못 한 항목 {item.unclear_count}건 (참가자격상
-                문제로 세지는 않았어요)
+                프로필에 언급이 없어 확인 못 한 항목 {item.unclear_count}건 (참가자격상 문제로
+                세지는 않았어요)
               </p>
             )}
           </div>
         )}
         <div className="mt-3.5 flex flex-wrap gap-2">
           <button
-            onClick={() => openInChat({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })}
+            onClick={() =>
+              openInChat({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })
+            }
             className="flex items-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-[filter] hover:brightness-105"
           >
             이 공고로 대화하기 <ArrowRight className="size-3.5" />
           </button>
           <button
-            onClick={() => addDoc({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })}
+            onClick={() =>
+              addDoc({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })
+            }
             disabled={already || isFull}
             className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors enabled:hover:border-primary enabled:hover:text-primary disabled:opacity-50"
           >

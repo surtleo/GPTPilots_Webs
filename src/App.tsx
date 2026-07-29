@@ -20,9 +20,7 @@ const THEME_KEY = 'bidmate.theme'
  * 문서 원문 패널·비교 모드는 대화 화면 안에서 셸 상태로 제어한다.
  */
 function Shell() {
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem(COLLAPSE_KEY) === 'true',
-  )
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === 'true')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [docPanelOpen, setDocPanelOpen] = useState(true)
   const [compare, setCompare] = useState(false)

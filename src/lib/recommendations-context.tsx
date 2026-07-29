@@ -171,9 +171,7 @@ export function RecommendationsProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <RecommendationsContext.Provider
-      value={{ items, loading, progress, error, ensure, refresh }}
-    >
+    <RecommendationsContext.Provider value={{ items, loading, progress, error, ensure, refresh }}>
       {children}
     </RecommendationsContext.Provider>
   )

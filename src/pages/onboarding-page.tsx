@@ -97,8 +97,8 @@ export function OnboardingPage() {
           보유 자격·신고사항이 있다면 선택해주세요 (선택)
         </label>
         <p className="mt-1 text-xs text-muted-foreground">
-          업무 경험은 위에 자유롭게 적으셔도 되지만, 자격·신고사항은 따로 체크해주셔야
-          참가자격 판정에 정확히 반영돼요.
+          업무 경험은 위에 자유롭게 적으셔도 되지만, 자격·신고사항은 따로 체크해주셔야 참가자격
+          판정에 정확히 반영돼요.
         </p>
         <div className="mt-3 flex flex-col gap-2">
           {QUALIFICATION_OPTIONS.map((q) => {

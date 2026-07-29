@@ -1,14 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import {
-  Columns2,
-  MessageSquare,
-  PanelLeft,
-  Plus,
-  SunMoon,
-  Target,
-  User,
-  X,
-} from 'lucide-react'
+import { Columns2, MessageSquare, PanelLeft, Plus, SunMoon, Target, User, X } from 'lucide-react'
 
 import { useActiveDocs, SLOT_KEYS, MAX_ACTIVE_DOCS } from '@/lib/active-docs-context'
 import { useChatSessions } from '@/lib/chat-sessions-context'
@@ -102,7 +93,9 @@ export function AppSidebar({
       </nav>
 
       {/* 활성 문서 */}
-      <div className={cn('flex items-center gap-1.5 pb-1.5', collapsed ? 'justify-center' : 'px-3.5')}>
+      <div
+        className={cn('flex items-center gap-1.5 pb-1.5', collapsed ? 'justify-center' : 'px-3.5')}
+      >
         {!collapsed && (
           <>
             <span className="font-mono text-[0.6rem] tracking-wider text-muted-foreground uppercase">

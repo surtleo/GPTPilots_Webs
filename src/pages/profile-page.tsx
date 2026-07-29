@@ -56,8 +56,8 @@ export function ProfilePage() {
           <Card>
             <p className="text-sm font-semibold">보유 자격·신고사항</p>
             <p className="mt-0.5 mb-2.5 text-xs text-muted-foreground">
-              업무 경험은 위에 쓰셔도 되지만, 자격·신고사항은 여기서 체크해주셔야 판정에
-              정확히 반영됩니다.
+              업무 경험은 위에 쓰셔도 되지만, 자격·신고사항은 여기서 체크해주셔야 판정에 정확히
+              반영됩니다.
             </p>
             <div className="flex flex-col gap-1.5">
               {QUALIFICATION_OPTIONS.map((q) => {
@@ -149,9 +149,9 @@ export function ProfilePage() {
                 정확도를 높이려면
               </p>
               <p className="mt-1.5 text-sm">
-                체크하지 않은 자격이 <b>{uncheckedCount}개</b> 있습니다. 실제로 보유
-                중이시라면 체크해주세요 — 체크하지 않으면 그 요건은 “확인 못 함”으로
-                남아 적격 판정의 근거가 줄어듭니다.
+                체크하지 않은 자격이 <b>{uncheckedCount}개</b> 있습니다. 실제로 보유 중이시라면
+                체크해주세요 — 체크하지 않으면 그 요건은 “확인 못 함”으로 남아 적격 판정의 근거가
+                줄어듭니다.
               </p>
             </div>
           )}

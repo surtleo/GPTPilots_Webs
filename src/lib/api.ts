@@ -201,10 +201,7 @@ export interface RfpContent {
   markdown: string
 }
 
-export async function fetchRfpContent(
-  docId: string,
-  signal?: AbortSignal,
-): Promise<RfpContent> {
+export async function fetchRfpContent(docId: string, signal?: AbortSignal): Promise<RfpContent> {
   return request<RfpContent>(`/rfps/${encodeURIComponent(docId)}/content`, { signal })
 }
 
@@ -316,7 +313,10 @@ export async function streamRecommendations(
     })
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
-    onEvent({ type: 'error', message: '백엔드에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요.' })
+    onEvent({
+      type: 'error',
+      message: '백엔드에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요.',
+    })
     return
   }
 

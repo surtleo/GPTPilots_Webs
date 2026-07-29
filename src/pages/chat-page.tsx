@@ -150,11 +150,7 @@ export function ChatPage({
                   messages={messages}
                   loading={loading}
                   error={error}
-                  emptyHint={
-                    primaryDocId
-                      ? '이 공고의 내용만 근거로 답합니다.'
-                      : undefined
-                  }
+                  emptyHint={primaryDocId ? '이 공고의 내용만 근거로 답합니다.' : undefined}
                 />
               </div>
             )}
