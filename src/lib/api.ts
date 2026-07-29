@@ -194,6 +194,85 @@ export async function fetchRfp(docId: string, signal?: AbortSignal): Promise<Rfp
   return request<RfpCard>(`/rfps/${encodeURIComponent(docId)}`, { signal })
 }
 
+/** 공고 원문(markdown) — 문서 뷰어용. 마스킹본이며 LLM을 타지 않아 비용 0. */
+export interface RfpContent {
+  doc_id: string
+  사업명: string | null
+  markdown: string
+}
+
+export async function fetchRfpContent(
+  docId: string,
+  signal?: AbortSignal,
+): Promise<RfpContent> {
+  return request<RfpContent>(`/rfps/${encodeURIComponent(docId)}/content`, { signal })
+}
+
+/**
+ * 참가자격 매칭 — POST /profile/infer(화면2 자동추론), POST /recommendations(화면3 추천목록).
+ * ELIGIBILITY_MATCH_PLAN.md 참고. verdict는 "적격"|"확인필요"|"미달"|"확인불가" 중 하나이며,
+ * /recommendations 응답에는 "적격"·"확인필요"만 온다(백엔드가 미리 걸러줌).
+ */
+export interface UnmetItem {
+  requirement: string
+  reason: string
+}
+
+export interface ProfileInferResult {
+  field: string | null
+  chips: string[]
+}
+
+export interface RecommendationItem {
+  doc_id: string
+  verdict: string
+  사업명: string | null
+  발주기관: string | null
+  금액: number | null
+  마감일: string | null
+  /** 문서 사업요약에서 뽑은 키워드 — 회사 프로필 chips와 같은 방식. */
+  chips: string[]
+  /** 충족 확인된 요건 + 사유 — "왜 적격인지" 근거로 화면에 보여준다. */
+  met: UnmetItem[]
+  unmet: UnmetItem[]
+  /** 프로필에 언급이 없어 확인 못 한 요건 수 — "적격 = 다 확인됨"이 아님을 표시하는 용도. */
+  unclear_count: number
+  missing_count: number | null
+  total: number
+}
+
+/** 자유서술 → 주력 분야 1개 + 키워드 chips 추론 (화면2 "자동추론" 단계, mock 아님). */
+export async function inferProfile(
+  introText: string,
+  signal?: AbortSignal,
+): Promise<ProfileInferResult> {
+  const data = await request<Partial<ProfileInferResult>>('/profile/infer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ intro_text: introText }),
+    signal,
+  })
+  return { field: data.field ?? null, chips: Array.isArray(data.chips) ? data.chips : [] }
+}
+
+/**
+ * 회사 프로필 → 적합도 상위 후보 중 적격·확인필요 문서 목록, 적합도 순.
+ * 후보만 참가자격 LLM 매칭이 순차로 돌기 때문에 요청당 1~2분 걸릴 수 있다 — 호출부에서
+ * 로딩 상태에 예상 소요시간을 안내할 것.
+ */
+export async function fetchRecommendations(
+  profileText: string,
+  signal?: AbortSignal,
+): Promise<RecommendationItem[]> {
+  const data = await request<RecommendationItem[]>('/recommendations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ profile_text: profileText }),
+    signal,
+  })
+  return Array.isArray(data) ? data : []
+}
+
 /** 응답을 라우팅 3케이스로 분류 (계약 4필드만으로 추론). */
 export function classifyAnswer(res: AskResponse): AnswerKind {
   const answer = res.answer.trim()
