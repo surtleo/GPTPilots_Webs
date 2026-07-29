@@ -13,12 +13,14 @@ import {
   ask,
   classifyAnswer,
   type AnswerKind,
+  type AskResponse,
   type ChatRole,
   type Citation,
   type Cost,
   type ErrorKind,
   type HistoryTurn,
 } from '@/lib/api'
+import type { MessageCard } from '@/lib/chat-cards'
 
 const STORAGE_KEY = 'bidmate.chat-sessions.v1'
 const MAX_SESSIONS = 30 // 무한정 쌓이지 않게 상한 — 넘으면 제일 오래된 것부터 버림
@@ -29,6 +31,8 @@ export interface AssistantMeta {
   citations: Citation[]
   cost: Cost
   activeDocId: string | null
+  /** 이 답변이 만들어낸 파일(비교표·핵심 정리) — 답변 아래 열기 카드로 붙는다. */
+  fileIds?: string[]
 }
 
 export interface ChatMessage {
@@ -36,6 +40,8 @@ export interface ChatMessage {
   role: ChatRole
   content: string
   meta?: AssistantMeta
+  /** 카드형 메시지(진행 단계·확인 질문·점검 결과·반문 후보). 없으면 평범한 말풍선. */
+  card?: MessageCard
 }
 
 export interface ChatError {
@@ -49,6 +55,8 @@ export interface ChatSession {
   title: string
   messages: ChatMessage[]
   activeDocId: string | null
+  /** 사이드바 목록 두 번째 줄에 쓰는 사업명 — doc_id는 장문 opaque id라 그대로는 못 읽는다. */
+  activeDocTitle: string | null
   updatedAt: number
 }
 
@@ -66,7 +74,26 @@ interface ChatSessionsValue {
   /** 대화 삭제. 지금 보고 있던 대화를 지우면 그다음으로 최근인 대화로 자동 전환하고,
    *  그마저 없으면 빈 상태(currentId: null)로 둔다 — chat-page.tsx가 첫 화면을 보여준다. */
   remove: (id: string) => void
-  send: (text: string) => Promise<void>
+  /**
+   * 성공하면 응답을, 실패·중복호출이면 null을 준다 — 호출부가 답변을 파일로도 저장할 수 있게.
+   *
+   * displayText는 대화에 남길 사용자 발화. 지시문을 덧붙여 물어야 하는 흐름(핵심 정리 등)에서
+   * 백엔드로 보내는 질문과 화면에 남길 말을 분리하려고 있다 — 사용자가 하지도 않은 문장을
+   * 사용자 말풍선에 남기지 않기 위해서다.
+   */
+  send: (text: string, opts?: { displayText?: string }) => Promise<AskResponse | null>
+  /**
+   * API를 태우지 않고 메시지만 대화에 남긴다.
+   * "맞춤 공고 3건 찾았어요" 같은, 대화 흐름을 잇지만 LLM을 부를 이유는 없는 안내용.
+   * 만든 메시지 id를 돌려준다 — 카드는 나중에 갱신해야 해서(진행 단계·질문 답변) 필요하다.
+   */
+  pushLocal: (
+    role: ChatRole,
+    content: string,
+    opts?: { meta?: Partial<AssistantMeta>; card?: MessageCard },
+  ) => string
+  /** 이미 띄운 카드를 갱신한다 — 진행 단계 완료 표시, 확인 질문에 답한 표시 등. */
+  patchCard: (messageId: string, patch: Partial<MessageCard>) => void
   /**
    * 활성 문서(사이드바 A 슬롯)가 바뀌었을 때 chat-page.tsx가 호출한다.
    * 지금 세션이 아직 빈 상태면 그냥 문서만 얹고, 이미 대화가 진행 중이면 그 대화는
@@ -115,6 +142,7 @@ function emptySession(activeDocId: string | null, title: string | null): ChatSes
     title: title ?? '새 대화',
     messages: [],
     activeDocId,
+    activeDocTitle: title,
     updatedAt: Date.now(),
   }
 }
@@ -133,7 +161,14 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ChatError | null>(null)
   const idRef = useRef(0)
-  const nextMsgId = () => `m${(idRef.current += 1)}`
+  // 메시지 id에 이 탭에서만 쓰는 접두사를 붙인다. 카운터만 쓰면 새로고침 때 0으로 되돌아가는데
+  // 세션은 localStorage에 남아 있어서, 같은 대화 안에 m1이 두 개 생긴다 — React key가 겹치는
+  // 것도 문제지만, 카드 갱신(patchCard)·확인 질문 답변이 id로 대상을 찾기 때문에 새로 띄운
+  // 카드를 건드리면 복원된 옛 카드까지 같이 바뀐다.
+  const idPrefix = useRef(
+    `${Date.now().toString(36)}${Math.floor(Math.random() * 1296).toString(36)}`,
+  )
+  const nextMsgId = () => `m${idPrefix.current}-${(idRef.current += 1).toString(36)}`
 
   const persist = useCallback((next: ChatSession[], nextCurrentId: string | null) => {
     save({ sessions: next, currentId: nextCurrentId })
@@ -200,7 +235,13 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         if (!cur || cur.messages.length === 0) {
           if (cur && cur.activeDocId === docId) return prev // 이미 같음
           const patched: ChatSession = cur
-            ? { ...cur, activeDocId: docId, title: title ?? cur.title, updatedAt: Date.now() }
+            ? {
+                ...cur,
+                activeDocId: docId,
+                activeDocTitle: title,
+                title: title ?? cur.title,
+                updatedAt: Date.now(),
+              }
             : emptySession(docId, title)
           const rest = prev.filter((s) => s.id !== patched.id)
           const next = [patched, ...rest].slice(0, MAX_SESSIONS)
@@ -220,10 +261,78 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     [currentId, persist],
   )
 
+  const pushLocal = useCallback(
+    (
+      role: ChatRole,
+      content: string,
+      opts?: { meta?: Partial<AssistantMeta>; card?: MessageCard },
+    ) => {
+      // id는 updater 밖에서 만든다 — StrictMode에서 updater가 두 번 돌면 id가 중복된다.
+      const id = nextMsgId()
+      setSessions((prev) => {
+        const cur = prev.find((s) => s.id === currentId)
+        const base = cur ?? emptySession(null, null)
+        const msg: ChatMessage = {
+          id,
+          role,
+          content,
+          card: opts?.card,
+          meta:
+            role === 'assistant'
+              ? {
+                  kind: 'answer',
+                  citations: [],
+                  cost: {},
+                  activeDocId: base.activeDocId,
+                  ...opts?.meta,
+                }
+              : undefined,
+        }
+        const patched: ChatSession = {
+          ...base,
+          title: base.messages.length === 0 && role === 'user' ? makeTitle(content) : base.title,
+          messages: [...base.messages, msg],
+          updatedAt: Date.now(),
+        }
+        const next = cur
+          ? prev.map((s) => (s.id === patched.id ? patched : s))
+          : [patched, ...prev].slice(0, MAX_SESSIONS)
+        setCurrentId(patched.id)
+        persist(next, patched.id)
+        return next
+      })
+      return id
+    },
+    [currentId, persist],
+  )
+
+  const patchCard = useCallback(
+    (messageId: string, patch: Partial<MessageCard>) => {
+      setSessions((prev) => {
+        const next = prev.map((s) =>
+          s.id === currentId
+            ? {
+                ...s,
+                messages: s.messages.map((m) =>
+                  m.id === messageId && m.card
+                    ? { ...m, card: { ...m.card, ...patch } as MessageCard }
+                    : m,
+                ),
+              }
+            : s,
+        )
+        persist(next, currentId)
+        return next
+      })
+    },
+    [currentId, persist],
+  )
+
   const send = useCallback(
-    async (raw: string) => {
+    async (raw: string, opts?: { displayText?: string }): Promise<AskResponse | null> => {
       const text = raw.trim()
-      if (!text || loading) return
+      if (!text || loading) return null
+      const shown = opts?.displayText?.trim() || text
       setError(null)
 
       let sessionId = currentId
@@ -232,7 +341,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         base = emptySession(null, null)
         sessionId = base.id
       }
-      const userMsg: ChatMessage = { id: nextMsgId(), role: 'user', content: text }
+      const userMsg: ChatMessage = { id: nextMsgId(), role: 'user', content: shown }
       const historyForRequest: HistoryTurn[] = base.messages.map((m) => ({
         role: m.role,
         content: m.content,
@@ -245,7 +354,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         const withUser: ChatSession = {
           ...base!,
           id: sessionId!,
-          title: isFirstMessage ? makeTitle(text) : base!.title,
+          title: isFirstMessage ? makeTitle(shown) : base!.title,
           messages: [...base!.messages, userMsg],
           updatedAt: Date.now(),
         }
@@ -286,12 +395,14 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
           persist(next, sessionId)
           return next
         })
+        return res
       } catch (err) {
         if (err instanceof ApiError) {
           setError({ kind: err.kind, status: err.status, message: err.message })
         } else {
           setError({ kind: 'unknown', status: 0, message: '알 수 없는 오류가 발생했습니다.' })
         }
+        return null
       } finally {
         setLoading(false)
       }
@@ -311,6 +422,8 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         select,
         remove,
         send,
+        pushLocal,
+        patchCard,
         setActiveDoc,
       }}
     >

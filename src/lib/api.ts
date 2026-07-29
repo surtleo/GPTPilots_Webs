@@ -206,18 +206,14 @@ export async function fetchRfpContent(docId: string, signal?: AbortSignal): Prom
 }
 
 /**
- * 참가자격 매칭 — POST /profile/infer(화면2 자동추론), POST /recommendations(화면3 추천목록).
- * ELIGIBILITY_MATCH_PLAN.md 참고. verdict는 "적격"|"확인필요"|"미달"|"확인불가" 중 하나이며,
- * /recommendations 응답에는 "적격"·"확인필요"만 온다(백엔드가 미리 걸러줌).
+ * 참가자격 매칭 (ELIGIBILITY_MATCH_PLAN.md).
+ * verdict는 "적격"|"확인필요"|"미달"|"확인불가" 중 하나인데, /recommendations 응답에는
+ * "적격"·"확인필요"만 온다(백엔드가 미리 걸러줌). **"확인필요"는 미충족 요건이 1건 이상
+ * 있다는 뜻**이므로, 목록에 실렸다는 이유로 "참가 가능"이라고 바꿔 말하면 안 된다.
  */
 export interface UnmetItem {
   requirement: string
   reason: string
-}
-
-export interface ProfileInferResult {
-  field: string | null
-  chips: string[]
 }
 
 export interface RecommendationItem {
@@ -238,36 +234,45 @@ export interface RecommendationItem {
   total: number
 }
 
-/** 자유서술 → 주력 분야 1개 + 키워드 chips 추론 (화면2 "자동추론" 단계, mock 아님). */
-export async function inferProfile(
-  introText: string,
-  signal?: AbortSignal,
-): Promise<ProfileInferResult> {
-  const data = await request<Partial<ProfileInferResult>>('/profile/infer', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ intro_text: introText }),
-    signal,
-  })
-  return { field: data.field ?? null, chips: Array.isArray(data.chips) ? data.chips : [] }
+/**
+ * 참가자격 판정 단건 — POST /eligibility/{doc_id}.
+ *
+ * 추천 목록(POST /recommendations)이 주는 판정과 같은 모양이지만, 이쪽은 문서를 직접
+ * 지정한다. 전체 100건에서 담은 공고처럼 추천을 거치지 않은 문서도 판정할 수 있어서
+ * "입찰 준비 점검"이 추천 여부와 무관하게 동작한다.
+ */
+export interface EligibilityResult {
+  verdict: string
+  met: UnmetItem[]
+  unmet: UnmetItem[]
+  unclear_count: number
+  missing_count: number | null
+  total: number
 }
 
-/**
- * 회사 프로필 → 적합도 상위 후보 중 적격·확인필요 문서 목록, 적합도 순.
- * 후보만 참가자격 LLM 매칭이 순차로 돌기 때문에 요청당 1~2분 걸릴 수 있다 — 호출부에서
- * 로딩 상태에 예상 소요시간을 안내할 것.
- */
-export async function fetchRecommendations(
+export async function fetchEligibility(
+  docId: string,
   profileText: string,
   signal?: AbortSignal,
-): Promise<RecommendationItem[]> {
-  const data = await request<RecommendationItem[]>('/recommendations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ profile_text: profileText }),
-    signal,
-  })
-  return Array.isArray(data) ? data : []
+): Promise<EligibilityResult> {
+  const data = await request<Partial<EligibilityResult>>(
+    // doc_id는 슬래시·공백을 포함할 수 있는 장문 한글 id → 세그먼트 인코딩 필수.
+    `/eligibility/${encodeURIComponent(docId)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profile_text: profileText }),
+      signal,
+    },
+  )
+  return {
+    verdict: typeof data.verdict === 'string' ? data.verdict : '확인불가',
+    met: Array.isArray(data.met) ? data.met : [],
+    unmet: Array.isArray(data.unmet) ? data.unmet : [],
+    unclear_count: typeof data.unclear_count === 'number' ? data.unclear_count : 0,
+    missing_count: typeof data.missing_count === 'number' ? data.missing_count : null,
+    total: typeof data.total === 'number' ? data.total : 0,
+  }
 }
 
 /**

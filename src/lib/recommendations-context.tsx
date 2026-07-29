@@ -29,6 +29,10 @@ interface RecommendationsValue {
   loading: boolean
   progress: RecoProgress
   error: RecoError | null
+  /** 지금 items가 어떤 프로필로 받아둔 결과인지. 아직 받은 게 없으면 null.
+   *  호출부가 "이미 대조해둔 결과가 있는지"를 items 개수와 무관하게 판단할 때 쓴다 —
+   *  0건도 엄연한 결과라서 items.length로는 구분이 안 된다. */
+  cachedFor: string | null
   /** profileText가 이미 캐시된 것과 같으면 아무 것도 안 한다 — 재요청 없이 캐시를 그대로 보여준다.
    *  화면(탭)을 오갈 때마다 매번 새로 부르지 않게 하려고 존재하는 함수. */
   ensure: (profileText: string) => void
@@ -171,7 +175,9 @@ export function RecommendationsProvider({ children }: { children: ReactNode }) {
   )
 
   return (
-    <RecommendationsContext.Provider value={{ items, loading, progress, error, ensure, refresh }}>
+    <RecommendationsContext.Provider
+      value={{ items, loading, progress, error, cachedFor: profileTextCached, ensure, refresh }}
+    >
       {children}
     </RecommendationsContext.Provider>
   )

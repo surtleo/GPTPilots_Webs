@@ -1,4 +1,12 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 
 /**
  * 회사 프로필 화면 간 공유 상태 — 화면1(자유서술)·화면2(분야·건수)를 화면3(추천목록)까지
@@ -46,11 +54,31 @@ const EMPTY: ProfileState = {
   qualifications: [],
 }
 
+/**
+ * 프로필 완성도 — 채운 항목 수 / 전체 항목 수.
+ *
+ * 자격 체크리스트를 5개로 세지 않고 "하나라도 체크했는가" 1항목으로 세는 이유: 5개 전부
+ * 해당되는 회사는 없다. 다 채워야 100%인 것처럼 보이면 해당 없는 항목을 억지로 체크하게
+ * 만드는데, 그건 판정을 망가뜨린다(체크 = 보유 주장).
+ */
+export const PROFILE_FIELD_COUNT = 4
+
+export function profileFilledCount(p: ProfileState): number {
+  return [
+    p.introText.trim().length > 0,
+    p.field != null,
+    p.recentCount.trim().length > 0,
+    p.qualifications.length > 0,
+  ].filter(Boolean).length
+}
+
 interface ProfileContextValue {
   profile: ProfileState
   setProfile: (patch: Partial<ProfileState>) => void
   /** 참가자격 매칭·추천 검색에 넣을 최종 프로필 텍스트 — 자유서술 + 분야 + 실적을 한 문단으로. */
   combinedText: string
+  /** 채운 항목 수 (0~PROFILE_FIELD_COUNT) — 사이드바·프로필 화면의 완성도 표시용. */
+  filledCount: number
   reset: () => void
 }
 
@@ -74,10 +102,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(profile))
   }, [profile])
 
-  const setProfile = (patch: Partial<ProfileState>) =>
-    setProfileState((prev) => ({ ...prev, ...patch }))
+  const setProfile = useCallback(
+    (patch: Partial<ProfileState>) => setProfileState((prev) => ({ ...prev, ...patch })),
+    [],
+  )
 
-  const reset = () => setProfileState(EMPTY)
+  const reset = useCallback(() => setProfileState(EMPTY), [])
 
   const combinedText = useMemo(() => {
     const parts = [profile.introText.trim()]
@@ -91,11 +121,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     return parts.filter(Boolean).join('\n')
   }, [profile])
 
-  return (
-    <ProfileContext.Provider value={{ profile, setProfile, combinedText, reset }}>
-      {children}
-    </ProfileContext.Provider>
+  const filledCount = useMemo(() => profileFilledCount(profile), [profile])
+
+  // value를 메모한다 — chat-flows의 흐름 콜백들이 combinedText·setProfile에 의존해서,
+  // 매 렌더 새 객체가 내려가면 그 콜백들도 전부 새로 만들어진다.
+  const value = useMemo(
+    () => ({ profile, setProfile, combinedText, filledCount, reset }),
+    [profile, setProfile, combinedText, filledCount, reset],
   )
+
+  return <ProfileContext.Provider value={value}>{children}</ProfileContext.Provider>
 }
 
 export function useProfile(): ProfileContextValue {

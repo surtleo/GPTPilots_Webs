@@ -1,6 +1,10 @@
+import { useMemo } from 'react'
 import Markdown from 'react-markdown'
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+
+import type { Citation } from '@/lib/api'
+import { citeIndexFromHref, CiteChip, linkifyCitations } from '@/components/chat/cite'
 
 /**
  * assistant 답변용 마크다운 렌더러 — GFM 표(배점표 등)·`출처` 포함.
@@ -62,11 +66,50 @@ const components: Components = {
   ),
 }
 
-export function MarkdownMessage({ content }: { content: string }) {
+export function MarkdownMessage({
+  content,
+  citations,
+}: {
+  content: string
+  /** 주면 본문의 `(출처: …)` 표기를 각주 칩으로 바꿔 단다. */
+  citations?: Citation[]
+}) {
+  const { text, refs } = useMemo(
+    () =>
+      citations?.length ? linkifyCitations(content, citations) : { text: content, refs: null },
+    [content, citations],
+  )
+
+  const withCites = useMemo<Components>(
+    () =>
+      refs
+        ? {
+            ...components,
+            a: ({ node: _node, href, children, ...props }) => {
+              const n = citeIndexFromHref(href)
+              const citation = n != null ? refs.get(n) : undefined
+              if (n != null && citation) return <CiteChip n={n} citation={citation} />
+              return (
+                <a
+                  className="text-primary underline underline-offset-2 hover:opacity-80"
+                  target="_blank"
+                  rel="noreferrer"
+                  href={href}
+                  {...props}
+                >
+                  {children}
+                </a>
+              )
+            },
+          }
+        : components,
+    [refs],
+  )
+
   return (
     <div className="text-sm text-foreground">
-      <Markdown remarkPlugins={[remarkGfm]} components={components}>
-        {content}
+      <Markdown remarkPlugins={[remarkGfm]} components={withCites}>
+        {text}
       </Markdown>
     </div>
   )
