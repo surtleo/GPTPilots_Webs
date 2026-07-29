@@ -1,14 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import {
-  ApiError,
-  fetchRecommendations,
-  fetchRfp,
-  fetchRfps,
-  type RecommendationItem,
-  type RfpCard,
-  type RfpListParams,
-} from '@/lib/api'
+import { ApiError, fetchRfp, fetchRfps, type RfpCard, type RfpListParams } from '@/lib/api'
 
 export interface LoadError {
   kind: ApiError['kind']
@@ -111,50 +103,7 @@ export function useRfp(docId: string | undefined): UseRfp {
   return { card, loading, error }
 }
 
-export interface UseRecommendations {
-  items: RecommendationItem[]
-  loading: boolean
-  error: LoadError | null
-  reload: () => void
-}
-
-/**
- * 회사 프로필 기반 추천 목록 (ELIGIBILITY_MATCH_PLAN.md Phase 3). profileText가 비어
- * 있으면 요청하지 않는다 — 온보딩을 안 거친 사용자는 화면3에서 구 방식(GET /rfps 전체
- * 열람)으로 폴백해야 하므로 호출부에서 profileText 유무로 분기할 것.
- * 후보만 참가자격 LLM 매칭이 순차로 돌아 요청당 1~2분 걸릴 수 있다.
- */
-export function useRecommendations(profileText: string): UseRecommendations {
-  const [items, setItems] = useState<RecommendationItem[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<LoadError | null>(null)
-  const [nonce, setNonce] = useState(0)
-
-  useEffect(() => {
-    if (!profileText.trim()) {
-      setItems([])
-      setLoading(false)
-      setError(null)
-      return
-    }
-    const controller = new AbortController()
-    setLoading(true)
-    setError(null)
-
-    fetchRecommendations(profileText, controller.signal)
-      .then((res) => {
-        setItems(res)
-        setLoading(false)
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return
-        setError(toLoadError(err))
-        setLoading(false)
-      })
-
-    return () => controller.abort()
-  }, [profileText, nonce])
-
-  const reload = useCallback(() => setNonce((n) => n + 1), [])
-  return { items, loading, error, reload }
-}
+// 추천 목록은 src/lib/recommendations-context.tsx(useRecommendationsCache)로 옮겨졌다 —
+// 배치 매칭이 문서당 1분 이상 걸리는데, 이 훅처럼 페이지 컴포넌트 안에 상태를 두면
+// 사이드바로 다른 탭에 갔다 돌아올 때마다(=라우트 리마운트) 매번 재요청하게 된다.
+// 앱 셸 레벨 컨텍스트에 둬서 프로필이 그대로면 캐시를 재사용한다.

@@ -4,7 +4,9 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { DocPicker } from '@/components/doc-picker'
 import { ActiveDocsProvider, useActiveDocs } from '@/lib/active-docs-context'
+import { ChatSessionsProvider } from '@/lib/chat-sessions-context'
 import { ProfileProvider } from '@/lib/profile-context'
+import { RecommendationsProvider } from '@/lib/recommendations-context'
 import { ChatPage } from '@/pages/chat-page'
 import { RecommendationsPage } from '@/pages/recommendations-page'
 import { ProfilePage } from '@/pages/profile-page'
@@ -125,7 +127,11 @@ function App() {
   return (
     <ProfileProvider>
       <ActiveDocsProvider>
-        <Shell />
+        <ChatSessionsProvider>
+          <RecommendationsProvider>
+            <Shell />
+          </RecommendationsProvider>
+        </ChatSessionsProvider>
       </ActiveDocsProvider>
     </ProfileProvider>
   )
