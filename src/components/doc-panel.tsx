@@ -42,7 +42,9 @@ export function DocPanel({
             title={doc.사업명 ?? doc.doc_id}
             className={cn(
               'flex max-w-[13rem] items-center gap-1.5 rounded-lg border border-transparent px-2.5 py-1.5 text-xs whitespace-nowrap text-muted-foreground transition-colors hover:bg-secondary',
-              !compare && activeTab === i && 'border-border bg-secondary font-semibold text-foreground',
+              !compare &&
+                activeTab === i &&
+                'border-border bg-secondary font-semibold text-foreground',
             )}
           >
             <SlotKey k={SLOT_KEYS[i]} />
@@ -98,7 +100,10 @@ export function DocPanel({
           ))}
         </div>
       ) : (
-        <DocBody docId={docs[Math.min(activeTab, docs.length - 1)].doc_id} withMeta={docs[Math.min(activeTab, docs.length - 1)]} />
+        <DocBody
+          docId={docs[Math.min(activeTab, docs.length - 1)].doc_id}
+          withMeta={docs[Math.min(activeTab, docs.length - 1)]}
+        />
       )}
     </aside>
   )

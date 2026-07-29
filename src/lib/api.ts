@@ -201,10 +201,7 @@ export interface RfpContent {
   markdown: string
 }
 
-export async function fetchRfpContent(
-  docId: string,
-  signal?: AbortSignal,
-): Promise<RfpContent> {
+export async function fetchRfpContent(docId: string, signal?: AbortSignal): Promise<RfpContent> {
   return request<RfpContent>(`/rfps/${encodeURIComponent(docId)}/content`, { signal })
 }
 
@@ -271,6 +268,83 @@ export async function fetchRecommendations(
     signal,
   })
   return Array.isArray(data) ? data : []
+}
+
+/**
+ * POST /recommendations/stream의 진행 이벤트 (NDJSON 한 줄 = 이벤트 하나).
+ * "무진행 로딩"이 고통스럽다는 피드백으로 만듦(2026-07-29) — 후보 추림·배치별 매칭
+ * 완료·최종 결과를 실시간으로 받아 화면에 단계별로 보여줄 수 있다.
+ */
+export type RecommendationProgressEvent =
+  | { type: 'candidates'; count: number }
+  | { type: 'matching'; done: number; total: number }
+  | { type: 'heartbeat' }
+  | { type: 'enriching' }
+  | { type: 'done'; items: RecommendationItem[] }
+  | { type: 'error'; message: string }
+
+/**
+ * 회사 프로필 → 추천 목록을 스트리밍으로 받는다. onEvent는 각 NDJSON 줄이 도착할 때마다
+ * 호출된다 — "done"·"error"가 오면 그 시점에 함수가 끝난다(별도 반환값 없음, 호출부가
+ * onEvent 안에서 items/error를 받아 상태에 반영할 것).
+ * fetch의 body ReadableStream을 직접 읽는 이유: EventSource(SSE)는 GET만 지원해서
+ * POST 바디(프로필 텍스트)를 못 보낸다.
+ */
+export async function streamRecommendations(
+  profileText: string,
+  onEvent: (event: RecommendationProgressEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!API_URL) {
+    onEvent({ type: 'error', message: 'VITE_API_URL이 설정되지 않았습니다. .env를 확인하세요.' })
+    return
+  }
+
+  let res: Response
+  try {
+    res = await fetch(`${API_URL}/recommendations/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(API_TOKEN ? { 'X-API-Token': API_TOKEN } : {}),
+      },
+      body: JSON.stringify({ profile_text: profileText }),
+      signal,
+    })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
+    onEvent({
+      type: 'error',
+      message: '백엔드에 연결할 수 없습니다. 서버가 켜져 있는지 확인하세요.',
+    })
+    return
+  }
+
+  if (!res.ok || !res.body) {
+    onEvent({ type: 'error', message: await readDetail(res) })
+    return
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    for (let newlineAt = buffer.indexOf('\n'); newlineAt !== -1; newlineAt = buffer.indexOf('\n')) {
+      const line = buffer.slice(0, newlineAt).trim()
+      buffer = buffer.slice(newlineAt + 1)
+      if (!line) continue
+      try {
+        onEvent(JSON.parse(line) as RecommendationProgressEvent)
+      } catch {
+        // 한 줄이 깨져 파싱 실패해도 스트림 자체는 계속 읽는다 — 다음 줄에서 복구될 수 있다.
+      }
+    }
+  }
 }
 
 /** 응답을 라우팅 3케이스로 분류 (계약 4필드만으로 추론). */

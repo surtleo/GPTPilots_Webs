@@ -1,15 +1,27 @@
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { AlertCircle, ArrowRight, CheckCircle2, CircleHelp, FileText, Search } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  CircleHelp,
+  FileText,
+  Loader2,
+  RotateCw,
+  Search,
+} from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useRecommendations, useRfps, type LoadError } from '@/hooks/use-rfps'
+import { useRfps } from '@/hooks/use-rfps'
 import { deadlineBadge, formatAmount } from '@/lib/format'
 import { useProfile } from '@/lib/profile-context'
 import { useActiveDocs } from '@/lib/active-docs-context'
+import { useRecommendationsCache, type RecoProgress } from '@/lib/recommendations-context'
 import type { RecommendationItem, RfpCard } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 const PAGE_SIZE = 20
 
@@ -29,28 +41,44 @@ export function RecommendationsPage() {
 }
 
 function RecommendedList({ profileText }: { profileText: string }) {
-  const { items, loading, error, reload } = useRecommendations(profileText)
+  const { items, loading, progress, error, ensure, refresh } = useRecommendationsCache()
+
+  // 마운트될 때마다 무조건 다시 부르지 않는다 — 이미 이 프로필로 받은 캐시가 있으면
+  // ensure()가 조용히 스킵한다. 프로필이 바뀐 경우에만 실제로 새 요청이 나간다.
+  useEffect(() => {
+    ensure(profileText)
+  }, [profileText, ensure])
+
+  const showSkeleton = loading && items.length === 0
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
       <main className="mx-auto w-full max-w-4xl px-7 py-7 pb-16">
-        <h1 className="font-heading text-h2 font-semibold tracking-tight">
-          {loading ? '참가자격을 확인하는 중…' : `참가 가능한 공고 ${items.length}건`}
-        </h1>
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+          <h1 className="font-heading text-h2 font-semibold tracking-tight">
+            {showSkeleton ? '참가자격을 확인하는 중…' : `참가 가능한 공고 ${items.length}건`}
+          </h1>
+          {!showSkeleton && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refresh(profileText)}
+              disabled={loading}
+            >
+              <RotateCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+              다시 찾기
+            </Button>
+          )}
+        </div>
         <p className="mb-5 text-sm text-muted-foreground">
-          작성하신 회사 프로필로 참가자격을 대조했습니다. 자격이 안 되는 공고는 목록에서
-          제외됩니다.
+          작성하신 회사 프로필로 참가자격을 대조했습니다. 자격이 안 되는 공고는 목록에서 제외됩니다.
         </p>
 
-        {loading && (
-          <div className="mb-5 rounded-md border border-dashed border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-            문서별로 참가자격을 하나씩 대조하고 있어 1~2분 정도 걸릴 수 있어요.
-          </div>
-        )}
+        {showSkeleton && <ProgressPanel progress={progress} />}
 
         {error ? (
-          <ErrorState error={error} onRetry={reload} />
-        ) : !loading && items.length === 0 ? (
+          <ErrorState error={error} onRetry={() => refresh(profileText)} />
+        ) : !showSkeleton && items.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border bg-card px-6 py-14 text-center">
             <FileText className="mx-auto size-8 text-muted-foreground" />
             <p className="mt-3 font-medium">참가 가능한 공고를 찾지 못했습니다</p>
@@ -59,13 +87,82 @@ function RecommendedList({ profileText }: { profileText: string }) {
             </p>
           </div>
         ) : (
-          <div className={`flex flex-col gap-4 ${loading ? 'opacity-60' : ''}`}>
-            {loading
+          <div className={`flex flex-col gap-4 ${showSkeleton ? 'opacity-60' : ''}`}>
+            {showSkeleton
               ? Array.from({ length: 3 }).map((_, i) => <CardSkeleton key={i} />)
               : items.map((r) => <RecommendationCard key={r.doc_id} item={r} />)}
           </div>
         )}
       </main>
+    </div>
+  )
+}
+
+/**
+ * 실시간 진행 단계 — "확인하는 중..."만 뜨고 몇 분이고 아무 신호가 없으면 고통스럽다는
+ * 피드백으로 만듦(2026-07-29). 백엔드가 배치 그룹이 끝날 때마다 스트리밍으로 알려주는
+ * 진행(RecoProgress)을 그대로 단계 리스트로 보여준다 — 지어낸 퍼센트가 아니라 실제로
+ * 몇 번째 배치가 끝났는지를 표시한다.
+ */
+function ProgressPanel({ progress }: { progress: RecoProgress }) {
+  const candidatesDone = progress.stage !== 'idle'
+  const candidatesCount = progress.stage !== 'idle' && 'count' in progress ? progress.count : null
+  const matchingActive = progress.stage === 'matching' || progress.stage === 'enriching'
+  const matchingDone = progress.stage === 'enriching'
+  const matchProgress = progress.stage === 'matching' ? progress : null
+  const enrichingActive = progress.stage === 'enriching'
+
+  return (
+    <div className="mb-5 rounded-xl border border-dashed border-border bg-muted/30 px-5 py-4">
+      <div className="flex flex-col gap-2.5">
+        <StepRow
+          state={candidatesDone ? 'done' : 'active'}
+          label={
+            candidatesCount != null
+              ? `적합도 높은 공고 ${candidatesCount}건을 후보로 선별했어요`
+              : '회사 프로필과 가까운 공고를 선별하는 중…'
+          }
+        />
+        <StepRow
+          state={matchingDone ? 'done' : matchingActive ? 'active' : 'pending'}
+          label={
+            matchProgress
+              ? `참가자격을 하나씩 대조하는 중 (${matchProgress.done}/${matchProgress.total})`
+              : '후보별 참가자격 대조'
+          }
+        />
+        <StepRow
+          state={enrichingActive ? 'active' : 'pending'}
+          label="결과 정리 중 (사업 정보·키워드 붙이는 중)"
+        />
+      </div>
+      <p className="mt-3.5 text-xs text-muted-foreground">
+        한 번 받으면 프로필을 바꾸기 전까지 다시 안 부릅니다. 다른 탭에 갔다 오셔도 계속 진행돼요.
+      </p>
+    </div>
+  )
+}
+
+function StepRow({ state, label }: { state: 'pending' | 'active' | 'done'; label: string }) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-2.5 text-sm',
+        state === 'pending' && 'text-muted-foreground/60',
+        state === 'active' && 'font-medium text-foreground',
+        state === 'done' && 'text-muted-foreground',
+      )}
+    >
+      <span className="grid size-4.5 shrink-0 place-items-center">
+        {state === 'done' && (
+          <span className="grid size-4.5 place-items-center rounded-full bg-success/15 text-success">
+            <Check className="size-3" strokeWidth={3} />
+          </span>
+        )}
+        {state === 'active' && <Loader2 className="size-4 animate-spin text-primary" />}
+        {state === 'pending' && <span className="size-1.5 rounded-full bg-muted-foreground/40" />}
+      </span>
+      {label}
     </div>
   )
 }
@@ -90,9 +187,7 @@ function RecommendationCard({ item }: { item: RecommendationItem }) {
     <div className="rounded-xl border border-border bg-card p-5 shadow-sm">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2.5">
-          <span className="font-heading text-lg font-semibold">
-            {item.사업명 ?? item.doc_id}
-          </span>
+          <span className="font-heading text-lg font-semibold">{item.사업명 ?? item.doc_id}</span>
           {confirmed ? (
             <Badge variant="accent" className="gap-1">
               <CheckCircle2 className="size-3.5" /> 적격
@@ -102,7 +197,9 @@ function RecommendationCard({ item }: { item: RecommendationItem }) {
               <CircleHelp className="size-3.5" /> 적격 · 근거 부족
             </Badge>
           ) : (
-            <Badge variant="outline">확인필요 · {item.missing_count}/{item.total} 부족</Badge>
+            <Badge variant="outline">
+              확인필요 · {item.missing_count}/{item.total} 부족
+            </Badge>
           )}
           <Badge variant={deadline.past ? 'secondary' : 'outline'}>{deadline.label}</Badge>
         </div>
@@ -154,21 +251,25 @@ function RecommendationCard({ item }: { item: RecommendationItem }) {
             )}
             {item.unclear_count > 0 && (
               <p className="mt-2 text-xs text-muted-foreground">
-                프로필에 언급이 없어 확인 못 한 항목 {item.unclear_count}건 (참가자격상
-                문제로 세지는 않았어요)
+                프로필에 언급이 없어 확인 못 한 항목 {item.unclear_count}건 (참가자격상 문제로
+                세지는 않았어요)
               </p>
             )}
           </div>
         )}
         <div className="mt-3.5 flex flex-wrap gap-2">
           <button
-            onClick={() => openInChat({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })}
+            onClick={() =>
+              openInChat({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })
+            }
             className="flex items-center gap-1.5 rounded-lg border border-primary bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-[filter] hover:brightness-105"
           >
             이 공고로 대화하기 <ArrowRight className="size-3.5" />
           </button>
           <button
-            onClick={() => addDoc({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })}
+            onClick={() =>
+              addDoc({ doc_id: item.doc_id, 사업명: item.사업명, verdict: item.verdict })
+            }
             disabled={already || isFull}
             className="rounded-lg border border-border bg-secondary px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors enabled:hover:border-primary enabled:hover:text-primary disabled:opacity-50"
           >
@@ -301,7 +402,7 @@ function EmptyState({ query }: { query: string }) {
   )
 }
 
-function ErrorState({ error, onRetry }: { error: LoadError; onRetry: () => void }) {
+function ErrorState({ error, onRetry }: { error: { message: string }; onRetry: () => void }) {
   return (
     <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-6 py-10 text-center">
       <AlertCircle className="mx-auto size-8 text-destructive" />

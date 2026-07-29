@@ -4,7 +4,9 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 import { AppSidebar } from '@/components/layout/app-sidebar'
 import { DocPicker } from '@/components/doc-picker'
 import { ActiveDocsProvider, useActiveDocs } from '@/lib/active-docs-context'
+import { ChatSessionsProvider } from '@/lib/chat-sessions-context'
 import { ProfileProvider } from '@/lib/profile-context'
+import { RecommendationsProvider } from '@/lib/recommendations-context'
 import { ChatPage } from '@/pages/chat-page'
 import { RecommendationsPage } from '@/pages/recommendations-page'
 import { ProfilePage } from '@/pages/profile-page'
@@ -18,9 +20,7 @@ const THEME_KEY = 'bidmate.theme'
  * 문서 원문 패널·비교 모드는 대화 화면 안에서 셸 상태로 제어한다.
  */
 function Shell() {
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem(COLLAPSE_KEY) === 'true',
-  )
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === 'true')
   const [pickerOpen, setPickerOpen] = useState(false)
   const [docPanelOpen, setDocPanelOpen] = useState(true)
   const [compare, setCompare] = useState(false)
@@ -125,7 +125,11 @@ function App() {
   return (
     <ProfileProvider>
       <ActiveDocsProvider>
-        <Shell />
+        <ChatSessionsProvider>
+          <RecommendationsProvider>
+            <Shell />
+          </RecommendationsProvider>
+        </ChatSessionsProvider>
       </ActiveDocsProvider>
     </ProfileProvider>
   )

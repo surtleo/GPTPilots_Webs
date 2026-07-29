@@ -4,8 +4,8 @@ import { Columns2, Plus, SendHorizontal, Sparkles, X } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { ChatView } from '@/components/chat-view'
 import { DocPanel } from '@/components/doc-panel'
-import { useChat } from '@/hooks/use-chat'
 import { useActiveDocs, SLOT_KEYS } from '@/lib/active-docs-context'
+import { useChatSessions } from '@/lib/chat-sessions-context'
 import { cn } from '@/lib/utils'
 
 const STARTERS = [
@@ -44,27 +44,28 @@ export function ChatPage({
 }) {
   const { docs, remove } = useActiveDocs()
   const primaryDocId = docs[0]?.doc_id ?? null
-  const chat = useChat(primaryDocId)
+  const primaryDocTitle = docs[0]?.사업명 ?? null
+  const { current, loading, error, send, setActiveDoc } = useChatSessions()
+  const messages = current?.messages ?? []
   const [draft, setDraft] = useState('')
   const taRef = useRef<HTMLTextAreaElement>(null)
 
-  // 활성 문서(A)가 바뀌면 대화를 새로 시작한다 — 다른 공고 맥락이 섞이면
-  // 답변이 어느 문서 기준인지 알 수 없어진다(백엔드도 문서 전환 시 히스토리를 끊는다).
-  // chat 객체 전체를 의존성에 넣으면 매 렌더마다 재실행되므로 reset만 넣는다.
-  const { reset } = chat
+  // 활성 문서(A)가 바뀌면 세션에 반영한다 — 이미 대화가 진행 중이었다면 그 대화는
+  // 히스토리에 남기고 새 문서로 새 세션을 시작한다(chat-sessions-context가 판단).
+  // setActiveDoc 자체는 안정적인 참조라 매 렌더 재실행 걱정 없이 의존성에 넣어도 된다.
   const prevPrimary = useRef(primaryDocId)
   useEffect(() => {
     if (prevPrimary.current !== primaryDocId) {
       prevPrimary.current = primaryDocId
-      reset()
+      setActiveDoc(primaryDocId, primaryDocTitle)
     }
-  }, [primaryDocId, reset])
+  }, [primaryDocId, primaryDocTitle, setActiveDoc])
 
   const submit = () => {
     const text = draft.trim()
-    if (!text || chat.loading) return
+    if (!text || loading) return
     setDraft('')
-    void chat.send(text)
+    void send(text)
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -74,7 +75,7 @@ export function ChatPage({
     }
   }
 
-  const empty = chat.messages.length === 0 && !chat.loading && !chat.error
+  const empty = messages.length === 0 && !loading && !error
   const showPanel = docPanelOpen && docs.length > 0
 
   return (
@@ -146,14 +147,10 @@ export function ChatPage({
             ) : (
               <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-6">
                 <ChatView
-                  messages={chat.messages}
-                  loading={chat.loading}
-                  error={chat.error}
-                  emptyHint={
-                    primaryDocId
-                      ? '이 공고의 내용만 근거로 답합니다.'
-                      : undefined
-                  }
+                  messages={messages}
+                  loading={loading}
+                  error={error}
+                  emptyHint={primaryDocId ? '이 공고의 내용만 근거로 답합니다.' : undefined}
                 />
               </div>
             )}
@@ -185,7 +182,7 @@ export function ChatPage({
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={onKeyDown}
-                  disabled={chat.loading}
+                  disabled={loading}
                   placeholder={
                     primaryDocId ? '이 공고에 대해 물어보세요' : '공고에 대해 무엇이든 물어보세요'
                   }
@@ -193,7 +190,7 @@ export function ChatPage({
                 />
                 <button
                   onClick={submit}
-                  disabled={!draft.trim() || chat.loading}
+                  disabled={!draft.trim() || loading}
                   aria-label="보내기"
                   className="grid size-8.5 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground transition-[filter] hover:brightness-105 disabled:opacity-40"
                 >

@@ -72,8 +72,7 @@ export function QuestionnairePage() {
   }
 
   // "자동추론" 단계는 응답이 오기 전까진 다음으로 못 넘어가게 — chips 없이 넘어가면 확인할 게 없다.
-  const nextDisabled =
-    step.kind === 'confirm' ? inferring || !answers[step.id] : !answers[step.id]
+  const nextDisabled = step.kind === 'confirm' ? inferring || !answers[step.id] : !answers[step.id]
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-secondary px-6 py-10">

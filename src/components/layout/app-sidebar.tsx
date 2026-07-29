@@ -1,16 +1,8 @@
-import { NavLink } from 'react-router-dom'
-import {
-  Columns2,
-  MessageSquare,
-  PanelLeft,
-  Plus,
-  SunMoon,
-  Target,
-  User,
-  X,
-} from 'lucide-react'
+import { NavLink, useNavigate } from 'react-router-dom'
+import { Columns2, MessageSquare, PanelLeft, Plus, SunMoon, Target, User, X } from 'lucide-react'
 
 import { useActiveDocs, SLOT_KEYS, MAX_ACTIVE_DOCS } from '@/lib/active-docs-context'
+import { useChatSessions } from '@/lib/chat-sessions-context'
 import { useProfile } from '@/lib/profile-context'
 import { cn } from '@/lib/utils'
 
@@ -41,6 +33,8 @@ export function AppSidebar({
   const { docs, remove, isFull } = useActiveDocs()
   const { profile } = useProfile()
   const hasProfile = profile.introText.trim().length > 0
+  const { sessions, currentId, startNew, select, remove: removeSession } = useChatSessions()
+  const navigate = useNavigate()
 
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden border-r border-border bg-sidebar">
@@ -74,19 +68,6 @@ export function AppSidebar({
         </RailButton>
       </div>
 
-      {/* 새 대화 */}
-      <NavLink
-        to="/chat"
-        className={cn(
-          'flex items-center justify-center gap-1.5 rounded-lg border border-border bg-card text-[0.84rem] font-semibold whitespace-nowrap transition-colors hover:border-primary hover:text-primary',
-          collapsed ? 'mx-auto mb-2.5 size-9 border-0 bg-transparent' : 'mx-3 mb-4 px-3 py-2.5',
-        )}
-        title="새 대화"
-      >
-        <Plus className="size-[18px]" />
-        {!collapsed && <span>새 대화</span>}
-      </NavLink>
-
       {!collapsed && <SectionLabel>기능</SectionLabel>}
       <nav className={cn('flex flex-col gap-0.5', collapsed ? 'items-center px-0' : 'px-2.5 pb-3')}>
         {NAV.map(({ to, label, icon: Icon }) => (
@@ -112,7 +93,9 @@ export function AppSidebar({
       </nav>
 
       {/* 활성 문서 */}
-      <div className={cn('flex items-center gap-1.5 pb-1.5', collapsed ? 'justify-center' : 'px-3.5')}>
+      <div
+        className={cn('flex items-center gap-1.5 pb-1.5', collapsed ? 'justify-center' : 'px-3.5')}
+      >
         {!collapsed && (
           <>
             <span className="font-mono text-[0.6rem] tracking-wider text-muted-foreground uppercase">
@@ -194,7 +177,75 @@ export function AppSidebar({
         )}
       </div>
 
-      <div className="mt-auto" />
+      {/* 최근 대화 — 클로드처럼 지난 세션들을 목록으로. "+" 로 진짜 빈 새 대화를 시작한다
+          (예전엔 이 버튼이 사이드바 맨 위에 크게 있었는데, "대화" 탭과 하는 일이 똑같아
+          중복이라는 피드백으로 없애고 여기 압축해서 넣었다). */}
+      {!collapsed && (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex items-center gap-1.5 px-3.5 pb-1.5">
+            <span className="font-mono text-[0.6rem] tracking-wider text-muted-foreground uppercase">
+              최근 대화
+            </span>
+            <button
+              onClick={() => {
+                startNew()
+                navigate('/chat')
+              }}
+              title="새 대화"
+              aria-label="새 대화"
+              className="ml-auto grid size-[22px] shrink-0 place-items-center rounded-md border border-border bg-card text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-2">
+            {sessions.length === 0 ? (
+              <p className="px-1.5 text-[0.68rem] text-muted-foreground">
+                대화를 시작하면 여기 쌓여요.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                {sessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className={cn(
+                      'group flex items-center rounded-lg pr-1 transition-colors hover:bg-card',
+                      s.id === currentId && 'bg-card',
+                    )}
+                  >
+                    <button
+                      onClick={() => {
+                        select(s.id)
+                        navigate('/chat')
+                      }}
+                      title={s.title}
+                      aria-current={s.id === currentId}
+                      className={cn(
+                        'min-w-0 flex-1 truncate rounded-lg px-2.5 py-1.5 text-left text-[0.8rem] text-muted-foreground',
+                        s.id === currentId && 'font-medium text-foreground',
+                      )}
+                    >
+                      {s.title}
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        removeSession(s.id)
+                      }}
+                      title="대화 삭제"
+                      aria-label="대화 삭제"
+                      className="grid size-6 shrink-0 place-items-center rounded-md text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {collapsed && <div className="mt-auto" />}
 
       <div
         className={cn(
