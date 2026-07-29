@@ -24,10 +24,13 @@
   /* Semantic colors (agentic tokens) */
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
   --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
 
   /* shadcn semantic mappings */
   --color-sidebar-ring: var(--sidebar-ring);
@@ -102,6 +105,11 @@
   --danger-foreground: #ffffff;
   --destructive: #dc2626;
 
+  /* 판정 뱃지 배경 — 텍스트는 진한 원색, 배경은 같은 색을 옅게. */
+  --success-soft: rgba(22, 163, 74, 0.12);
+  --warning-soft: rgba(217, 119, 6, 0.12);
+  --danger-soft: rgba(220, 38, 38, 0.12);
+
   /* Lines / focus */
   --border: #e5e7eb;
   --input: #e5e7eb;
@@ -151,6 +159,10 @@
   --danger-foreground: #1a0505;
   --destructive: #ef4444;
 
+  --success-soft: rgba(34, 197, 94, 0.14);
+  --warning-soft: rgba(245, 158, 11, 0.14);
+  --danger-soft: rgba(239, 68, 68, 0.14);
+
   --border: rgba(255, 255, 255, 0.1);
   --input: rgba(255, 255, 255, 0.14);
   --ring: #ff6a24;
@@ -183,4 +195,31 @@
   h3 {
     font-family: var(--font-heading);
   }
+}
+
+/* 인용 각주를 눌러 원문으로 점프했을 때, 그 대목이 어디인지 잠깐 밝혔다 사라진다.
+   스크롤만 시키면 화면 어디를 봐야 하는지 알 수 없어 붙였다. */
+@keyframes bidmate-flash {
+  0% {
+    background-color: rgba(255, 140, 50, 0.55);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.cite-flash {
+  animation: bidmate-flash 2s ease-out;
+  border-radius: 4px;
+  padding: 1px 2px;
+  margin: -1px -2px;
+}
+
+/* 뷰어 탭 바처럼 가로 스크롤은 되지만 스크롤바는 안 보였으면 하는 곳. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
