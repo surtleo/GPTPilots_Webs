@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { ChevronRight, FileText, LoaderCircle, SendHorizontal, ShieldAlert, X } from 'lucide-react'
 
 import type { Cost } from '@/lib/api'
@@ -17,6 +24,73 @@ import { useProfile } from '@/lib/profile-context'
 import { useRecommendationsCache } from '@/lib/recommendations-context'
 import { docKey, genKey, useWorkspace } from '@/lib/workspace-context'
 import { cn } from '@/lib/utils'
+
+const CHAT_WIDTH_KEY = 'bidmate.chat.width'
+// 최소 320px: 이보다 좁으면 제안 칩·첨부칩이 줄바꿈으로 뭉개진다.
+// 최대는 화면의 60%: 채팅이 뷰어를 다 밀어내면 원문 근거를 볼 수 없게 된다.
+const CHAT_MIN_WIDTH = 320
+const CHAT_MAX_RATIO = 0.6
+
+function clampChatWidth(w: number): number {
+  const max = Math.max(CHAT_MIN_WIDTH, Math.round(window.innerWidth * CHAT_MAX_RATIO))
+  return Math.min(Math.max(Math.round(w), CHAT_MIN_WIDTH), max)
+}
+
+/**
+ * 왼쪽 경계 드래그로 채팅 폭을 조절한다. 폭은 localStorage에 남겨 재방문 시 복원하고,
+ * 더블클릭이면 저장값을 지워 기본 폭(clamp CSS)으로 돌아간다.
+ *
+ * width가 null이면 "사용자가 만진 적 없음" — 이때는 인라인 width를 주지 않고 기존
+ * 반응형 clamp 클래스를 그대로 쓴다. 고정 px를 항상 박아버리면 창 크기를 줄였을 때
+ * 채팅이 화면을 다 먹는 문제가 생겨서, 조절한 사람에게만 고정 폭을 준다.
+ */
+function useChatResize(enabled: boolean) {
+  const [width, setWidth] = useState<number | null>(() => {
+    const n = Number(localStorage.getItem(CHAT_WIDTH_KEY))
+    return Number.isFinite(n) && n > 0 ? clampChatWidth(n) : null
+  })
+  const drag = useRef<{ startX: number; startWidth: number } | null>(null)
+  const widthRef = useRef(width)
+  widthRef.current = width
+
+  const onPointerDown = useCallback(
+    (e: ReactPointerEvent<HTMLDivElement>) => {
+      if (!enabled) return
+      e.preventDefault() // 드래그 중 텍스트 선택 방지
+      e.currentTarget.setPointerCapture(e.pointerId)
+      // 시작 폭은 실제 렌더 폭에서 잰다 — width가 null(기본 clamp 폭)이어도 이어서 끌 수 있게.
+      const aside = e.currentTarget.parentElement
+      drag.current = { startX: e.clientX, startWidth: aside?.offsetWidth ?? CHAT_MIN_WIDTH }
+      document.body.style.cursor = 'col-resize'
+      document.body.style.userSelect = 'none'
+    },
+    [enabled],
+  )
+
+  const onPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const d = drag.current
+    if (!d) return
+    // 왼쪽 경계라 왼쪽으로 끌수록(clientX 감소) 폭이 커진다.
+    setWidth(clampChatWidth(d.startWidth + (d.startX - e.clientX)))
+  }, [])
+
+  const onPointerUp = useCallback(() => {
+    if (!drag.current) return
+    drag.current = null
+    document.body.style.cursor = ''
+    document.body.style.userSelect = ''
+    if (widthRef.current != null) {
+      localStorage.setItem(CHAT_WIDTH_KEY, String(widthRef.current))
+    }
+  }, [])
+
+  const reset = useCallback(() => {
+    setWidth(null)
+    localStorage.removeItem(CHAT_WIDTH_KEY)
+  }, [])
+
+  return { width, onPointerDown, onPointerMove, onPointerUp, reset }
+}
 
 /**
  * 채팅 — 이 앱에서 뭔가를 시작하는 자리는 전부 여기다.
@@ -87,13 +161,38 @@ export function ChatPanel({
 
   const inner = wide ? 'mx-auto w-full max-w-[44rem] px-3' : 'px-3'
 
+  // wide(뷰어 없음)면 어차피 전체 폭이라 리사이즈가 의미 없다 — 핸들도 안 그린다.
+  const resize = useChatResize(!wide)
+  const resized = !wide && resize.width != null
+
   return (
     <aside
       className={cn(
-        'flex min-h-0 flex-col bg-card',
-        wide ? 'min-w-0 flex-1' : 'w-[clamp(15.625rem,26vw,24rem)] shrink-0 border-l border-border',
+        'relative flex min-h-0 flex-col bg-card',
+        wide
+          ? 'min-w-0 flex-1'
+          : cn(
+              'shrink-0 border-l border-border',
+              // 사용자가 폭을 만진 적 없으면 기존 반응형 clamp 폭 유지
+              !resized && 'w-[clamp(15.625rem,26vw,24rem)]',
+            ),
       )}
+      style={resized ? { width: resize.width! } : undefined}
     >
+      {!wide && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="채팅 폭 조절"
+          title="드래그로 폭 조절 · 더블클릭으로 기본 폭"
+          onPointerDown={resize.onPointerDown}
+          onPointerMove={resize.onPointerMove}
+          onPointerUp={resize.onPointerUp}
+          onPointerCancel={resize.onPointerUp}
+          onDoubleClick={resize.reset}
+          className="absolute inset-y-0 -left-0.5 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-primary/40 active:bg-primary/60"
+        />
+      )}
       <div className="flex min-h-[46px] shrink-0 items-center gap-2 border-b border-border px-3.5 py-2">
         <p className="text-[13px] font-bold">채팅</p>
         {!wide && (
