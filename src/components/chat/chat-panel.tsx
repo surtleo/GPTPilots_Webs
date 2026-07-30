@@ -292,9 +292,36 @@ function Message({ message }: { message: ChatMessage }) {
 
   return (
     <div className="min-w-0">
+      {meta?.reasoning && <ReasoningBlock text={meta.reasoning} />}
       <MarkdownMessage content={message.content} citations={meta?.citations} />
       {meta && <FileCards meta={meta} />}
       {meta && <CostLine cost={meta.cost} />}
+    </div>
+  )
+}
+
+/**
+ * 답변 위 접이식 "생각 과정" — 백엔드가 준 LLM reasoning 요약. 기본 접힘.
+ * reasoning이 없는 답변(즉답·반문·구버전 백엔드)은 호출부에서 아예 렌더하지 않는다.
+ */
+function ReasoningBlock({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="mb-1.5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
+        생각 과정
+      </button>
+      {open && (
+        <p className="mt-1 border-l-2 border-border pl-2.5 text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+          {text}
+        </p>
+      )}
     </div>
   )
 }
