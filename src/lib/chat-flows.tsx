@@ -101,19 +101,24 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     cachedFor,
     refresh,
   } = useRecommendationsCache()
-  const { pushLocal, patchCard, send } = useChatSessions()
+  const { pushLocal, patchCard, send, peekCurrentId } = useChatSessions()
   const { open, addFile } = useWorkspace()
   const [busy, setBusy] = useState<string | null>(null)
-  // 지금 진행 중인 추천 흐름의 단계 카드 id — 이벤트가 올 때마다 이 카드를 갱신한다.
-  const recoCardRef = useRef<string | null>(null)
+  // 지금 진행 중인 추천 흐름의 단계 카드 — 카드 id와 그 카드가 실제로 속한 세션 id를 함께
+  // 들고 있는다. 대조는 1~2분 걸리는데(위 진행바 문구 참고) 그사이 사용자가 사이드바에서
+  // 다른 대화로 넘어갈 수 있다 — patchCard/pushLocal이 "지금 보고 있는 세션"이 아니라
+  // 이 sessionId를 향하게 해야, 카드가 엉뚱한 세션에서 영원히 멈춰 있거나 결과 메시지가
+  // 이 흐름과 무관한 대화에 끼어드는 걸 막는다(2026-07-30 QA 라운드에서 코드 리뷰로 발견).
+  const recoCardRef = useRef<{ id: string; sessionId: string } | null>(null)
 
   // 추천 진행 상황을 단계 카드에 반영한다. 프로토타입은 타이머로 가짜 진행을 그렸지만,
   // 여기서 쓰는 값은 백엔드가 배치 그룹마다 흘려주는 실제 이벤트다.
   useEffect(() => {
-    const id = recoCardRef.current
-    if (!id) return
+    const active = recoCardRef.current
+    if (!active) return
+    const { id, sessionId } = active
     if (recoLoading) {
-      patchCard(id, { steps: recoSteps(progress, false), done: false })
+      patchCard(id, { steps: recoSteps(progress, false), done: false }, sessionId)
       return
     }
     recoCardRef.current = null
@@ -122,12 +127,12 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     // 스트림이 끊기거나 워치독이 걸린 경우에도 단계가 전부 ✓로 바뀌고 예전 캐시 건수로
     // "담아뒀어요"라는 거짓 보고가 남는다 — 에러는 왼쪽 패널에만 뜨는데도.
     if (recoError) {
-      patchCard(id, { failed: true, done: true })
-      pushLocal('assistant', `참가자격 대조가 중단됐어요 — ${recoError.message}`)
+      patchCard(id, { failed: true, done: true }, sessionId)
+      pushLocal('assistant', `참가자격 대조가 중단됐어요 — ${recoError.message}`, { sessionId })
       return
     }
 
-    patchCard(id, { steps: recoSteps(progress, true), done: true })
+    patchCard(id, { steps: recoSteps(progress, true), done: true }, sessionId)
     // "참가 가능"이라고 뭉뚱그리지 않는다: 백엔드는 적격과 확인필요를 함께 돌려주는데,
     // 확인필요는 미충족 요건이 1건 이상 있다는 판정이다(src/eligibility.py `_build_verdict`).
     // 이걸 전부 "참가 가능"으로 재서술하면 프론트가 판정을 바꿔 말하는 셈이 된다.
@@ -136,6 +141,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       items.length > 0
         ? `참가자격을 대조해 ${verdictBreakdown(items)}을 왼쪽 맞춤 공고에 담아뒀어요. 확인필요는 미충족 요건이 남아 있다는 뜻이라 뱃지를 꼭 봐주세요. 체크하시면 그 공고를 근거로 답하고, 준비 점검·비교표·핵심 정리도 만들 수 있어요.`
         : '자격이 걸리지 않는 공고를 찾지 못했어요. 회사 소개를 더 구체적으로 적거나 보유 자격을 체크하시면 결과가 달라질 수 있어요.',
+      { sessionId },
     )
   }, [recoLoading, recoError, progress, items, patchCard, pushLocal])
 
@@ -178,11 +184,28 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       }
 
       refresh(combinedText)
-      recoCardRef.current = pushLocal('assistant', '', {
+      // pushLocal('user', text) 위에서 이미 세션을 확정지었으니(없었으면 방금 만들어졌으니)
+      // 그 직후 시점의 currentId를 그대로 이 흐름이 쓸 세션으로 고정한다 — 대조가 도는
+      // 1~2분 동안 사용자가 다른 대화로 넘어가도 이 흐름은 시작한 세션에 계속 쓴다.
+      const sessionId = peekCurrentId()
+      if (!sessionId) return
+      const cardId = pushLocal('assistant', '', {
         card: { kind: 'steps', steps: recoSteps(progress, false), done: false },
+        sessionId,
       })
+      recoCardRef.current = { id: cardId, sessionId }
     },
-    [combinedText, items, cachedFor, recoError, recoLoading, refresh, pushLocal, progress],
+    [
+      combinedText,
+      items,
+      cachedFor,
+      recoError,
+      recoLoading,
+      refresh,
+      pushLocal,
+      peekCurrentId,
+      progress,
+    ],
   )
 
   const runCompare = useCallback(
