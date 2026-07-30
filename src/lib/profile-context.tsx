@@ -83,6 +83,14 @@ export interface QualItem {
   label: string
   /** 이 조건이 등장한 문서 비율(또는 건수) — 실측값. 표시용 문자열 그대로 둔다. */
   freq: string
+  /**
+   * 공고 요건 원문에 이 단어가 있으면 이 체크 항목이 그 요건을 답해준다고 본다.
+   *
+   * 용도: 준비 점검 후 되묻는 질문을 **그 공고에서 실제로 확인 못 한 요건**에서만 뽑기 위함.
+   * 예전엔 체크 안 한 항목 전부를 물어봐서 그 공고와 상관없는 걸 묻고 있었다.
+   * 단어는 실제 요건 원문(data/extracted/eligibility.json)에서 확인한 표현만 넣었다.
+   */
+  matches: readonly string[]
 }
 
 export interface QualGroup {
@@ -107,10 +115,35 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
     label: '기본 참가자격',
     coverage: '97%',
     items: [
-      { label: '국가계약법·지방계약법상 경쟁입찰 참가자격 보유', freq: '96%' },
-      { label: '부정당업자 제재 대상 아님', freq: '86%' },
-      { label: '제출서류에 허위기재 없음(적발 시 실격)', freq: '33%' },
-      { label: '청렴서약·입찰담합·뇌물제공 이력 없음', freq: '28%' },
+      {
+        label: '국가계약법·지방계약법상 경쟁입찰 참가자격 보유',
+        freq: '96%',
+        matches: [
+          '국가계약법',
+          '지방계약법',
+          '국가를 당사자로 하는 계약',
+          '지방자치단체를 당사자로',
+          '경쟁입찰의 참가자격',
+          '경쟁입찰 참가자격',
+          '입찰참가자격 등록',
+          '입찰참가자격등록',
+        ],
+      },
+      {
+        label: '부정당업자 제재 대상 아님',
+        freq: '86%',
+        matches: ['부정당업자', '부정당 업자', '부정당업체', '부정당 업체'],
+      },
+      {
+        label: '제출서류에 허위기재 없음(적발 시 실격)',
+        freq: '33%',
+        matches: ['허위', '위·변조', '위변조'],
+      },
+      {
+        label: '청렴서약·입찰담합·뇌물제공 이력 없음',
+        freq: '28%',
+        matches: ['청렴', '담합', '뇌물', '금품'],
+      },
     ],
   },
   {
@@ -118,8 +151,12 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
     label: '컨소시엄·하도급',
     coverage: '92%',
     items: [
-      { label: '공동수급(컨소시엄) 형태로 참여 가능', freq: '85%' },
-      { label: '하도급을 받을 수 있음', freq: '81%' },
+      {
+        label: '공동수급(컨소시엄) 형태로 참여 가능',
+        freq: '85%',
+        matches: ['공동수급', '공동계약', '공동이행', '분담이행', '지분율'],
+      },
+      { label: '하도급을 받을 수 있음', freq: '81%', matches: ['하도급'] },
     ],
   },
   {
@@ -127,9 +164,24 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
     label: '사업자 신고·증명서',
     coverage: '87%',
     items: [
-      { label: '소프트웨어사업자 신고 완료 (컴퓨터관련서비스업 1468)', freq: '84%' },
-      { label: '직접생산확인증명서 보유', freq: '63%' },
-      { label: '중소기업·소상공인 확인서 보유', freq: '58%' },
+      {
+        label: '소프트웨어사업자 신고 완료 (컴퓨터관련서비스업 1468)',
+        freq: '84%',
+        matches: [
+          '소프트웨어사업자',
+          'SW사업자',
+          '컴퓨터관련서비스',
+          '1468',
+          '소프트웨어 진흥법',
+          '소프트웨어산업 진흥법',
+        ],
+      },
+      { label: '직접생산확인증명서 보유', freq: '63%', matches: ['직접생산'] },
+      {
+        label: '중소기업·소상공인 확인서 보유',
+        freq: '58%',
+        matches: ['중소기업', '소상공인', '소기업'],
+      },
     ],
   },
   {
@@ -137,8 +189,16 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
     label: '기업 규모·납세',
     coverage: '79%',
     items: [
-      { label: '국세·지방세·4대보험 체납 없음', freq: '16%' },
-      { label: '입찰보증금·이행보증보험 준비 가능', freq: '18%' },
+      {
+        label: '국세·지방세·4대보험 체납 없음',
+        freq: '16%',
+        matches: ['국세', '지방세', '체납', '완납', '4대 사회보험', '사회보험'],
+      },
+      {
+        label: '입찰보증금·이행보증보험 준비 가능',
+        freq: '18%',
+        matches: ['입찰보증금', '보증보험', '보증서'],
+      },
     ],
     extra: 'daegi',
   },
@@ -147,9 +207,21 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
     label: '인력·보안',
     coverage: '57%',
     items: [
-      { label: '개인정보보호·보안서약 등 보안 규정 대응 가능', freq: '46%' },
-      { label: '투입 예정 인력에 결격사유(형사처벌 등) 없음', freq: '29%' },
-      { label: '사업 수행 가능한 기술인력 보유', freq: '11%' },
+      {
+        label: '개인정보보호·보안서약 등 보안 규정 대응 가능',
+        freq: '46%',
+        matches: ['개인정보', '보안'],
+      },
+      {
+        label: '투입 예정 인력에 결격사유(형사처벌 등) 없음',
+        freq: '29%',
+        matches: ['결격사유', '재직', '자사인력', '신원조사', '징역', '금고', '벌금'],
+      },
+      {
+        label: '사업 수행 가능한 기술인력 보유',
+        freq: '11%',
+        matches: ['기술인력', '기술자', '기술등급'],
+      },
     ],
   },
   {
@@ -157,22 +229,70 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
     label: '면허·업종 등록',
     coverage: '54%',
     items: [
-      { label: '정보통신공사업 등록', freq: '7건' },
-      { label: '엔지니어링사업자 신고', freq: '4건' },
-      { label: '공간정보업·측량업 등록', freq: '2건' },
-      { label: '기술사사무소 등록', freq: '2건' },
-      { label: '해외건설업 신고', freq: '1건' },
-      { label: '건설업 등록', freq: '1건' },
-      { label: '조달청 물품 등록(컴퓨터서버 등)', freq: '1건' },
+      { label: '정보통신공사업 등록', freq: '7건', matches: ['정보통신공사업'] },
+      { label: '엔지니어링사업자 신고', freq: '4건', matches: ['엔지니어링'] },
+      { label: '공간정보업·측량업 등록', freq: '2건', matches: ['공간정보', '측량'] },
+      { label: '기술사사무소 등록', freq: '2건', matches: ['기술사'] },
+      { label: '해외건설업 신고', freq: '1건', matches: ['해외건설'] },
+      { label: '건설업 등록', freq: '1건', matches: ['건설업'] },
+      {
+        label: '조달청 물품 등록(컴퓨터서버 등)',
+        freq: '1건',
+        matches: ['물품 등록', '세부품명', '물품분류', '컴퓨터서버'],
+      },
     ],
     extra: 'licenseOther',
   },
 ] as const
 
-/** 전체 자격 항목(평평한 목록) — 체크 안 된 항목을 되묻는 흐름(chat-flows)이 쓴다. */
+/** 전체 자격 항목(평평한 목록). */
 export const QUALIFICATION_OPTIONS: readonly string[] = QUAL_GROUPS.flatMap((g) =>
   g.items.map((i) => i.label),
 )
+
+const ALL_QUAL_ITEMS: readonly QualItem[] = QUAL_GROUPS.flatMap((g) => g.items)
+
+export interface AskableFromUnclear {
+  /** 되물을 체크 항목 라벨 — 그 공고의 불명 요건과 실제로 연결된 것만. */
+  labels: string[]
+  /** 어떤 체크 항목과도 연결되지 않은 불명 요건 수. 프로필로는 답할 수 없는 것들. */
+  unanswerableCount: number
+}
+
+/**
+ * "이 공고에서 확인 못 한 요건" → "되물을 만한 체크 항목".
+ *
+ * 예전엔 준비 점검 후 되묻는 질문을 **체크 안 한 항목 전부**에서 뽑아서, 그 공고와 아무
+ * 상관 없는 걸 물어봤다(예: 관제 시스템 공고인데 해외건설업 신고 여부를 물음).
+ * 이제 백엔드가 불명 요건 목록을 주므로, 그 요건 원문에 걸리는 항목만 골라 묻는다.
+ *
+ * 이미 체크한 항목은 제외한다 — 답이 있는 걸 다시 묻지 않는다. 그래서 "불명 요건은
+ * 남아 있지만 되물을 건 없음"이 정상적인 결과일 수 있다(요건이 "증명서를 보유했나"가
+ * 아니라 "유효기간이 남았나" 같은 세부라 체크리스트로는 답이 안 되는 경우).
+ *
+ * 연결 안 된 요건은 개수로 돌려준다 — 못 묻는다는 사실을 화면이 정직하게 말할 수 있게.
+ */
+export function askableFromUnclear(
+  unclearRequirements: readonly string[],
+  alreadyChecked: readonly string[],
+): AskableFromUnclear {
+  const labels = new Set<string>()
+  let unanswerable = 0
+
+  for (const text of unclearRequirements) {
+    const hit = ALL_QUAL_ITEMS.filter((item) => item.matches.some((kw) => text.includes(kw)))
+    if (hit.length === 0) {
+      unanswerable += 1
+      continue
+    }
+    const askable = hit.filter((item) => !alreadyChecked.includes(item.label))
+    // 걸리는 항목이 있는데 전부 이미 체크돼 있으면 물을 게 없다 — 못 답하는 요건으로도
+    // 세지 않는다(체크리스트가 답을 이미 줬는데 세부 조건이 남은 경우라서).
+    for (const item of askable) labels.add(item.label)
+  }
+
+  return { labels: [...labels], unanswerableCount: unanswerable }
+}
 
 /**
  * 대기업집단(상호출자제한기업집단) 소속 여부 — 체크박스가 아니라 3지선다인 이유.
