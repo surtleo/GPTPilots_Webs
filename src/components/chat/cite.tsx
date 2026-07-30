@@ -96,8 +96,11 @@ export function CiteChip({ n, citation }: { n: number; citation: Citation }) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
+      {/* quote로 section을 넘기면 안 된다 — 원문에 "제출서류" 같은 섹션명이 우연히
+          다른 곳(목차 등)에도 있으면 그 엉뚱한 위치가 하이라이트·스크롤된다.
+          여기선 실제 인용 발췌문이 없으니(위 주석 참고) 정직하게 null로 둔다. */}
       <button
-        onClick={() => docId && openCite(docId, section, section)}
+        onClick={() => docId && openCite(docId, null, section)}
         disabled={!docId}
         title={docId ?? undefined}
         className="mx-0.5 inline-grid h-[15px] min-w-4 place-items-center rounded-[5px] border border-border bg-secondary px-1 align-text-top font-mono text-[9.5px] text-muted-foreground transition-colors hover:border-primary hover:text-primary"
