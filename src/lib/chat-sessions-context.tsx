@@ -95,9 +95,9 @@ interface ChatSessionsValue {
   /** 이미 띄운 카드를 갱신한다 — 진행 단계 완료 표시, 확인 질문에 답한 표시 등. */
   patchCard: (messageId: string, patch: Partial<MessageCard>) => void
   /**
-   * 활성 문서(사이드바 A 슬롯)가 바뀌었을 때 chat-page.tsx가 호출한다.
-   * 지금 세션이 아직 빈 상태면 그냥 문서만 얹고, 이미 대화가 진행 중이면 그 대화는
-   * 히스토리에 그대로 남기고 새 문서로 새 세션을 시작한다(예전엔 그냥 덮어썼음).
+   * 활성 문서(사이드바 A 슬롯)가 바뀌었을 때 chat-panel.tsx가 호출한다.
+   * 현재 세션의 근거 문서만 갈아끼우고 대화는 그대로 유지한다 — 새 세션은 만들지 않는다.
+   * 새 대화는 사용자가 명시적으로 startNew를 눌렀을 때만 시작한다.
    */
   setActiveDoc: (docId: string | null, title: string | null) => void
 }
@@ -230,31 +230,27 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     (docId: string | null, title: string | null) => {
       setSessions((prev) => {
         const cur = prev.find((s) => s.id === currentId)
-        // 세션이 아직 없거나, 있어도 비어있으면(대화 시작 전) 그냥 문서만 얹는다 —
-        // 잃을 대화 내용이 없으니 새 세션을 만들 필요가 없다.
-        if (!cur || cur.messages.length === 0) {
-          if (cur && cur.activeDocId === docId) return prev // 이미 같음
-          const patched: ChatSession = cur
-            ? {
-                ...cur,
-                activeDocId: docId,
-                activeDocTitle: title,
-                title: title ?? cur.title,
-                updatedAt: Date.now(),
-              }
-            : emptySession(docId, title)
-          const rest = prev.filter((s) => s.id !== patched.id)
-          const next = [patched, ...rest].slice(0, MAX_SESSIONS)
-          setCurrentId(patched.id)
-          persist(next, patched.id)
-          return next
-        }
-        // 이미 대화가 있는데 문서가 바뀌면 — 그 대화는 히스토리에 남기고 새 세션 시작.
-        if (cur.activeDocId === docId) return prev
-        const fresh = emptySession(docId, title)
-        const next = [fresh, ...prev].slice(0, MAX_SESSIONS)
-        setCurrentId(fresh.id)
-        persist(next, fresh.id)
+        if (cur && cur.activeDocId === docId) return prev // 이미 같음
+        // 예전엔 "대화가 진행 중이면 히스토리에 남기고 새 세션 시작"이었다 — 문서가 바뀌면
+        // 대화 맥락도 끊긴다고 봤기 때문이다. 그런데 A 슬롯은 공고를 담거나 원문을 여는
+        // 것만으로도 바뀌어서, 사용자에겐 "공고 버튼을 누르면 채팅이 새로 생기는" 버그로
+        // 보였다(2026-07-30 보고). 백엔드 /ask는 매 요청에 히스토리와 doc_id를 함께 받으니
+        // 문서를 바꿔도 이어서 물을 수 있다 — 근거 문서만 갈아끼우고 대화는 유지한다.
+        // 새 세션은 사용자가 "새 대화"(startNew)를 눌렀을 때만 만든다.
+        const patched: ChatSession = cur
+          ? {
+              ...cur,
+              activeDocId: docId,
+              activeDocTitle: title,
+              // 제목은 대화 시작 전에만 문서명으로 바꾼다 — 첫 발화로 만든 제목을 덮지 않게.
+              title: cur.messages.length === 0 ? (title ?? cur.title) : cur.title,
+              updatedAt: Date.now(),
+            }
+          : emptySession(docId, title)
+        const rest = prev.filter((s) => s.id !== patched.id)
+        const next = [patched, ...rest].slice(0, MAX_SESSIONS)
+        setCurrentId(patched.id)
+        persist(next, patched.id)
         return next
       })
     },
