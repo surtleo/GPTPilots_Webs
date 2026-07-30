@@ -93,7 +93,6 @@ export interface QualGroup {
   items: readonly QualItem[]
   /** 체크박스로 표현할 수 없어 화면에 따로 그리는 입력이 있는 유형. */
   extra?: 'daegi' | 'licenseOther'
-  note?: string
 }
 
 /**
@@ -122,7 +121,6 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
       { label: '공동수급(컨소시엄) 형태로 참여 가능', freq: '85%' },
       { label: '하도급을 받을 수 있음', freq: '81%' },
     ],
-    note: '공고마다 요구 방향이 반대일 수 있어요("단독 참가만 허용" vs "공동수급 필수") — 체크는 우리 회사가 그렇게 할 수 있는지를 뜻해요.',
   },
   {
     id: 'cert',
@@ -133,7 +131,6 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
       { label: '직접생산확인증명서 보유', freq: '63%' },
       { label: '중소기업·소상공인 확인서 보유', freq: '58%' },
     ],
-    note: '직접생산확인증명서는 세부품명별로 따로 발급돼요 — 실측 1위는 "정보시스템개발서비스(8111159901)"예요. 품명까지 고르게 하면 판정이 더 정확해지는데 항목이 또 늘어서 일단 안 나눴어요.',
   },
   {
     id: 'scale',
@@ -169,7 +166,6 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
       { label: '조달청 물품 등록(컴퓨터서버 등)', freq: '1건' },
     ],
     extra: 'licenseOther',
-    note: '여기 뱃지는 %가 아니라 등장한 문서 수예요. 하나하나는 드물지만 합치면 54% 공고가 뭔가의 면허·등록을 요구해요 — "면허 보유" 하나로 뭉개면 어떤 면허인지 알 수 없어 판정이 안 돼서 유형을 따로 뺐어요.',
   },
 ] as const
 
@@ -188,19 +184,6 @@ export const QUALIFICATION_OPTIONS: readonly string[] = QUAL_GROUPS.flatMap((g) 
  */
 export type DaegiState = 'no' | 'yes' | 'unknown'
 
-/** 기업신용평가 등급 — 참가자격 판정에는 쓰이지 않는다(CREDIT_NOT_USED_NOTE 참고). */
-export const CREDIT_GRADES = ['AAA', 'AA', 'A', 'BBB', 'BB', 'B', 'CCC 이하'] as const
-
-/**
- * 신용등급·자본금을 참가자격 체크리스트에서 빼서 따로 둔 이유(실측):
- * 98개 문서를 전수 확인했을 때 "○○등급 이상이어야 참가 가능"을 요구한 문서는 0건이었다.
- * 신용평가등급확인서는 전부 (a) 제출서류 목록이거나 (b) 기술평가 신인도 가감점용이다.
- * 판정에 쓰이지 않는 칸을 체크리스트에 섞으면 완성도 카운터가 부풀려지고 "다 채웠으니
- * 괜찮겠지"라는 잘못된 안심을 준다. 기술평가(Q2) 기능이 생기면 그쪽에서 쓴다.
- */
-export const CREDIT_NOT_USED_NOTE =
-  '참가자격 판정에는 쓰이지 않아요 — "○○등급 이상"을 참가 조건으로 요구한 공고가 실측 0건이었어요. 기술평가 점수(신인도)에 쓰이는 값이라 그 기능이 생기면 반영돼요.'
-
 export interface ProfileState {
   introText: string
   /** 주력 분야 — 다중 선택. */
@@ -214,9 +197,6 @@ export interface ProfileState {
   /** 목록에 없는 면허·등록증 자유 입력. */
   licenseOther: string
   daegi: DaegiState | null
-  /** 아래 둘은 판정에 쓰지 않는다 — CREDIT_NOT_USED_NOTE 참고. */
-  creditGrade: string | null
-  capital: string
 }
 
 const EMPTY: ProfileState = {
@@ -228,8 +208,6 @@ const EMPTY: ProfileState = {
   hqRegion: null,
   licenseOther: '',
   daegi: null,
-  creditGrade: null,
-  capital: '',
 }
 
 /**
@@ -334,7 +312,12 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     return parts.filter(Boolean).join('\n')
   }, [profile.introText, profile.fields])
 
-  // 대조용 — 판정에 쓰이는 모든 값. creditGrade·capital은 뺀다(판정 미사용).
+  // 대조용 — 판정에 쓰이는 모든 값.
+  //
+  // 신용등급·자본금은 애초에 프로필 항목에서 뺐다: 98개 문서 전수 확인 결과 "○○등급
+  // 이상이어야 참가 가능"을 요구한 문서가 0건이었다(전부 제출서류 목록이거나 기술평가
+  // 신인도 가감점용). 판정에 쓰이지 않는 값은 받아둬도 쓸 곳이 없어 화면만 어지럽힌다
+  // — 기술평가(Q2) 기능을 만들 때 그쪽에서 새로 받는 게 맞다.
   const matchText = useMemo(() => {
     const parts = [searchText]
     if (profile.recentCount.trim()) {

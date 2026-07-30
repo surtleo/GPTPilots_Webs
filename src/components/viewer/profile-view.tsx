@@ -4,8 +4,6 @@ import { Check, ChevronDown, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  CREDIT_GRADES,
-  CREDIT_NOT_USED_NOTE,
   FIELD_OPTIONS,
   PROFILE_FIELD_COUNT,
   QUAL_GROUPS,
@@ -224,8 +222,6 @@ export function ProfileView() {
             ))}
           </Card>
 
-          <NotUsedForJudging />
-
           <p className="mt-0.5 text-center text-xs text-muted-foreground">
             입력하는 즉시 자동 저장돼요 — 저장 버튼이 없는 이유예요.
           </p>
@@ -332,12 +328,6 @@ function GroupPanel({ group, onToggle }: { group: QualGroup; onToggle: (q: strin
           />
         </div>
       )}
-
-      {group.note && (
-        <p className="mt-2.5 rounded-[9px] bg-card px-3 py-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
-          {group.note}
-        </p>
-      )}
     </div>
   )
 }
@@ -380,10 +370,6 @@ function DaegiPicker() {
           )
         })}
       </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-        해당되면 그 자체로 참여가 막히는 조항이라(공고 72%) 정직하게 “예”를 고를 수 있게 뒀어요.
-        “모름”은 프로필에 아무 내용도 넣지 않아요.
-      </p>
     </div>
   )
 }
@@ -448,7 +434,9 @@ function RegionCard() {
               key={r}
               type="button"
               aria-pressed={on}
-              title={r}
+              // 점이 찍힌 지역은 실제 공고에서 지역제한으로 등장한 곳 — 화면에 설명을 따로
+              // 두지 않고 hover 툴팁으로만 알려준다(각주가 많으면 정작 입력이 안 읽힌다).
+              title={REGIONS_SEEN_IN_DOCS.includes(r) ? `${r} — 지역제한 공고에 등장한 지역` : r}
               onPointerDown={(e) => {
                 e.preventDefault()
                 dragging.current = true
@@ -525,86 +513,7 @@ function RegionCard() {
           </div>
         </div>
       )}
-
-      <p className="mt-2.5 flex gap-1.5 text-[11px] leading-relaxed text-muted-foreground">
-        <span aria-hidden className="mt-1.5 size-1.5 shrink-0 rounded-full bg-warning" />
-        점이 찍힌 지역은 실제 공고에서 지역제한으로 등장한 곳이에요.
-      </p>
     </Card>
-  )
-}
-
-/**
- * 참가자격 판정에 쓰이지 않는 정보 — 접어서 따로 둔다.
- * 판정에 안 쓰이는 칸을 위 체크리스트에 섞으면 완성도가 부풀려지고 잘못된 안심을 준다.
- */
-function NotUsedForJudging() {
-  const { profile, setProfile } = useProfile()
-  const [open, setOpen] = useState(false)
-
-  return (
-    <div className="rounded-xl border border-dashed border-border px-4.5 py-3.5">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 text-left text-[12.5px] font-semibold text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ChevronDown className={cn('size-3.5 transition-transform', open && 'rotate-180')} />
-        참가자격 판정에는 쓰이지 않는 정보 (기술평가용 · 준비 중)
-      </button>
-
-      {open && (
-        <div className="mt-3 flex flex-col gap-2.5">
-          <p className="rounded-[9px] border-l-[3px] border-warning bg-card px-3 py-2.5 text-[11.5px] leading-relaxed text-muted-foreground">
-            {CREDIT_NOT_USED_NOTE}
-          </p>
-
-          <div className="rounded-[9px] border border-border bg-card px-3 py-2.5">
-            <p className="mb-2 text-[12.5px] font-semibold">기업신용평가 등급</p>
-            <div className="flex flex-wrap gap-1.5">
-              {CREDIT_GRADES.map((g) => {
-                const sel = profile.creditGrade === g
-                return (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => setProfile({ creditGrade: sel ? null : g })}
-                    aria-pressed={sel}
-                    className={cn(
-                      'rounded-lg border border-border bg-background px-2.5 py-1.5 font-mono text-xs font-bold transition-colors hover:bg-secondary',
-                      sel && 'border-primary bg-accent text-accent-foreground',
-                    )}
-                  >
-                    {g}
-                  </button>
-                )
-              })}
-            </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">
-              신용등급은 숫자가 아니라 AAA~D 등급 표기라서 등급 선택으로 뒀어요.
-            </p>
-          </div>
-
-          <div className="rounded-[9px] border border-border bg-card px-3 py-2.5">
-            <label className="mb-2 block text-[12.5px] font-semibold" htmlFor="capital">
-              자본금
-            </label>
-            <div className="flex items-center gap-2.5">
-              <Input
-                id="capital"
-                type="number"
-                min={0}
-                value={profile.capital}
-                onChange={(e) => setProfile({ capital: e.target.value })}
-                placeholder="0"
-                className="max-w-36 font-mono tabular-nums"
-              />
-              <span className="text-xs text-muted-foreground">백만 원</span>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
   )
 }
 
