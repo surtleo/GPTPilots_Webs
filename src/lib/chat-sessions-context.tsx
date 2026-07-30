@@ -20,6 +20,7 @@ import {
   type ErrorKind,
   type HistoryTurn,
 } from '@/lib/api'
+import { useActiveDocs } from '@/lib/active-docs-context'
 import type { MessageCard } from '@/lib/chat-cards'
 
 const STORAGE_KEY = 'bidmate.chat-sessions.v1'
@@ -157,6 +158,10 @@ function emptySession(activeDocId: string | null, title: string | null): ChatSes
  * 진짜 빈 세션을 새로 만든다.
  */
 export function ChatSessionsProvider({ children }: { children: ReactNode }) {
+  // 첨부칩(활성 문서 목록)이 질문 근거 문서의 단일 진실이다 — 세션에 저장된 핀은
+  // clarify 응답(active_doc_id: null)이 덮어써 유실될 수 있어서, 매 send 시점에
+  // 칩의 첫 문서를 직접 doc_id로 쓴다. 칩이 비어 있을 때만 세션 핀으로 폴백한다.
+  const { docs: attachedDocs } = useActiveDocs()
   const initial = useRef(load())
   const [sessions, setSessions] = useState<ChatSession[]>(initial.current.sessions)
   const [currentId, setCurrentId] = useState<string | null>(initial.current.currentId)
@@ -344,7 +349,9 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         role: m.role,
         content: m.content,
       }))
-      const activeDocId = base.activeDocId
+      // 칩(첨부 문서)이 있으면 그게 근거 문서다 — 세션 핀은 clarify 응답이 null로
+      // 지워놨을 수 있어서, 칩이 보이는데 doc_id 없이 보내는 불일치를 여기서 끊는다.
+      const activeDocId = attachedDocs[0]?.doc_id ?? base.activeDocId
       const isFirstMessage = base.messages.length === 0
 
       setSessions((prev) => {
@@ -372,7 +379,10 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
             if (s.id !== sessionId) return s
             return {
               ...s,
-              activeDocId: res.active_doc_id,
+              // clarify·무근거 응답은 active_doc_id를 null로 준다 — 그걸로 세션 핀을
+              // 지우면 첨부칩은 그대로인데 다음 질문부터 doc_id가 안 실리는 불일치가
+              // 생긴다(실제 회귀). null이면 기존 핀을 유지한다.
+              activeDocId: res.active_doc_id ?? s.activeDocId,
               updatedAt: Date.now(),
               messages: [
                 ...s.messages,
@@ -406,7 +416,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         setLoading(false)
       }
     },
-    [current, currentId, loading, persist],
+    [attachedDocs, current, currentId, loading, persist],
   )
 
   return (

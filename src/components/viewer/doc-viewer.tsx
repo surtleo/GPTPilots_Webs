@@ -9,9 +9,11 @@ import {
   cleanRfpMarkdown,
   findSectionAnchor,
   findTocTargets,
+  looksLikeTocLine,
   normalizeAnchorText,
   parseRfpBlocks,
   squash,
+  stripTocPageTail,
   type RfpBlock,
 } from '@/lib/clean-rfp-markdown'
 import {
@@ -84,7 +86,9 @@ export function DocViewer({ docId }: { docId: string }) {
       <div ref={scrollRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-5.5">
         <div className="mx-auto max-w-[44rem] overflow-hidden rounded-xl border border-border bg-card shadow-sm">
           <div className="px-6.5 pt-5.5 pb-2">
-            <h1 className="font-heading text-[22px] leading-snug font-bold">{title}</h1>
+            {/* 전역 font-heading은 라틴 전용 세리프라 한글 제목이 시스템 세리프로 폴백돼
+                깨져 보인다 — 문서 제목은 한글이므로 본문 sans로 그린다. */}
+            <h1 className="font-sans text-[22px] leading-snug font-bold">{title}</h1>
             <p className="mt-1.5 text-[12.5px] text-muted-foreground">
               {card?.발주기관 ?? '발주기관 미상'}
               {card?.공고번호 ? ` · 공고 ${card.공고번호}` : ''}
@@ -300,7 +304,7 @@ function findAnchorElement(
  * ① 파이프 표가 헤더 열 수를 초과하는 셀을 버려 비정형 hwp 표의 내용이 유실·오정렬됐고
  * ② 문단·리스트 파싱이 원문 줄바꿈·번호를 재조판해 원문과 다르게 보였다.
  * 그래서 cleanRfpMarkdown(잡음 제거) → parseRfpBlocks(표·헤딩·본문 블록 분리) 뒤,
- * 표 블록만 자체 <table>로(모든 행의 모든 셀 보존 — 행마다 열 수가 달라도 그대로),
+ * 표 블록만 자체 <table>로(모든 행의 모든 셀 보존 — 짧은 행은 빈 셀 패딩으로 그리드 정렬),
  * 나머지 본문은 원문 줄바꿈 그대로 pre-wrap 한 줄 = 한 줄로 그린다.
  * 인용 하이라이트는 렌더된 DOM에서 앵커 요소를 찾아 밝힌다.
  */
@@ -393,7 +397,14 @@ function FullText({
       className="text-[13px] leading-relaxed text-foreground [word-break:keep-all]"
     >
       {blocks.map((block, i) => (
-        <RfpBlockView key={i} block={block} tocTargets={tocTargets} onJump={jumpToRange} />
+        <RfpBlockView
+          key={i}
+          block={block}
+          tocTargets={tocTargets}
+          // findTocTargets와 같은 좌표계·같은 컷오프 — 이 안의 줄만 목차 영역으로 본다.
+          tocCutoff={cleaned ? cleaned.length * 0.1 : 0}
+          onJump={jumpToRange}
+        />
       ))}
     </div>
   )
@@ -402,8 +413,8 @@ function FullText({
 /**
  * 정돈된 원문 블록 하나의 렌더.
  *
- * - table: 모든 행의 모든 셀을 그 행의 셀 수 그대로 <table>에 싣는다. GFM처럼 헤더 열
- *   수에 맞춰 셀을 버리지 않는다 — 행마다 열 수가 달라도 유실 없이 그대로다.
+ * - table: 모든 행의 모든 셀을 <table>에 싣는다. GFM처럼 헤더 열 수에 맞춰 셀을 버리지
+ *   않고, 짧은 행은 파싱 단계에서 표 최대 열 수까지 빈 셀로 패딩돼 한 그리드에 정렬된다.
  * - heading: 정리 단계가 만든 섹션 제목. 전역 h1–h3엔 라틴 전용 세리프(font-heading)가
  *   걸려 있어 한글이 시스템 세리프로 폴백돼 깨져 보인다 — 원문 뷰어 범위에선 font-sans를
  *   명시해 본문 폰트로 그린다.
@@ -413,10 +424,13 @@ function FullText({
 function RfpBlockView({
   block,
   tocTargets,
+  tocCutoff,
   onJump,
 }: {
   block: RfpBlock
   tocTargets: Map<number, { start: number; end: number }>
+  /** 이 오프셋 미만의 줄만 목차 영역 — findTocTargets의 10% 컷오프와 같은 값. */
+  tocCutoff: number
   onJump: (range: { start: number; end: number }) => void
 }) {
   const cellClass = 'border border-border px-2 py-1.5 whitespace-pre-wrap align-top'
@@ -461,18 +475,27 @@ function RfpBlockView({
           {block.lines.map((line) => {
             if (line.text.trim() === '') return <p key={line.offset} className="h-3" />
             const target = tocTargets.get(line.offset)
+            // 목차 줄은 꼬리 페이지 번호를 떼고 보여준다 — 렌더에선 페이지 개념이 없어
+            // "제목<탭><탭>12"의 12는 아무 데도 못 가는 숫자다. 클릭 가능한 목차 줄
+            // (tocTargets 매칭)은 항상, 매칭 실패한 평문 줄은 목차 영역 안에서 목차 꼴
+            // (탭·점선 리더 + 꼬리 숫자)일 때만 뗀다. 본문 줄엔 적용하지 않는다.
+            const inTocArea = line.offset < tocCutoff
+            const text =
+              target || (inTocArea && looksLikeTocLine(line.text))
+                ? stripTocPageTail(line.text)
+                : line.text
             return (
               <p key={line.offset} className="my-0.5 whitespace-pre-wrap">
                 {target ? (
                   <button
                     onClick={() => onJump(target)}
                     title="본문의 이 섹션으로 이동"
-                    className="cursor-pointer text-left underline-offset-3 transition-colors hover:text-primary hover:underline"
+                    className="cursor-pointer text-left text-primary underline underline-offset-3 transition-opacity hover:opacity-75"
                   >
-                    {line.text}
+                    {text}
                   </button>
                 ) : (
-                  line.text
+                  text
                 )}
               </p>
             )

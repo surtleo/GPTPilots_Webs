@@ -124,7 +124,8 @@ export function cleanRfpMarkdown(markdown: string): string {
  * GFM 마크다운 렌더에 통째로 맡기지 않는 이유(둘 다 실사용에서 겪은 문제):
  *  1) GFM 파이프 표는 **헤더 열 수를 초과하는 셀을 버린다**. hwp 추출 표는 헤더 3열에
  *     본문 10열 같은 비정형이 흔해서 셀이 통째로 사라지거나 엉뚱한 열에 붙는다.
- *     여기서는 모든 행의 모든 셀을 그 행의 셀 수 그대로 보존한다 — 무손실이 최우선.
+ *     여기서는 모든 행의 모든 셀을 보존하고, 짧은 행만 표 최대 열 수까지 빈 셀로
+ *     패딩한다(내용 추가·삭제 없음) — 무손실이 최우선이고 그리드 정렬이 그다음이다.
  *  2) 문단·리스트 파싱이 원문 줄바꿈·번호를 재해석해 원문과 다르게 조판된다.
  *     표·헤딩이 아닌 줄은 전부 lines 블록으로 묶어 한 줄 = 한 줄로 그대로 그린다.
  */
@@ -169,8 +170,16 @@ export function parseRfpBlocks(cleaned: string): RfpBlock[] {
       }
       const hasHeader = raw.length >= 2 && !isSeparatorRow(raw[0]) && isSeparatorRow(raw[1])
       const cells = raw.filter((r) => !isSeparatorRow(r)).map((r) => rowCells(r) ?? [])
-      if (hasHeader) blocks.push({ type: 'table', header: cells[0], rows: cells.slice(1) })
-      else blocks.push({ type: 'table', header: null, rows: cells })
+      // hwp 병합셀 손실로 행마다 셀 수가 제각각이다(헤더 3셀에 데이터 행 28셀 같은 표도
+      // 실재한다). 짧은 행을 그대로 그리면 뒤쪽 열에 td가 아예 없어 테두리가 끊긴 채
+      // 매달린 셀로 보이므로, 표 최대 열 수까지 빈 문자열 셀로 패딩해 한 그리드에 맞춘다.
+      // 채워진 셀 내용은 건드리지 않는다 — 무손실 원칙 그대로.
+      const maxCols = Math.max(0, ...cells.map((r) => r.length))
+      const padded = cells.map((r) =>
+        r.length < maxCols ? [...r, ...Array<string>(maxCols - r.length).fill('')] : r,
+      )
+      if (hasHeader) blocks.push({ type: 'table', header: padded[0], rows: padded.slice(1) })
+      else blocks.push({ type: 'table', header: null, rows: padded })
       continue
     }
 
@@ -299,6 +308,27 @@ export function findSectionAnchor(
 }
 
 /**
+ * 목차 줄 꼬리 페이지 번호 — "제목<탭><탭>12" · "제목 ···· 3" 의 뒤쪽.
+ * findTocTargets의 매칭과 뷰어의 목차 줄 표시가 같은 패턴을 써야 한다 — 매칭용으로만
+ * 벗기고 화면엔 그대로 두면 목차 줄이 페이지 번호를 단 채 렌더된다.
+ */
+export const TOC_PAGE_TAIL_RE = /[\s.·…]*\d+\s*$/
+
+/** 목차 줄 꼬리 페이지 번호를 뗀 표시용 텍스트. */
+export function stripTocPageTail(text: string): string {
+  return text.replace(TOC_PAGE_TAIL_RE, '')
+}
+
+/**
+ * 본문 매칭에 실패한(=클릭 불가) 목차 영역 줄이 그래도 목차 항목처럼 보이는가.
+ * 탭 또는 점선 리더(·…. 2개 이상) 뒤에 꼬리 숫자가 붙은 꼴만 인정한다 — 일반 공백만
+ * 요구하면 목차 영역에 섞인 본문 줄("… 2026" 같은)의 숫자까지 지워버린다.
+ */
+export function looksLikeTocLine(text: string): boolean {
+  return /(?:\t|[.·…]{2,})[\s.·…]*\d+\s*$/.test(text)
+}
+
+/**
  * 목차 줄 → 본문 제목 줄 매핑.
  *
  * 문서 앞 10%(findSectionLine의 목차 컷오프와 같은 기준) 안의 줄 중, 꼬리 페이지 번호를
@@ -320,7 +350,7 @@ export function findTocTargets(markdown: string): Map<number, { start: number; e
 
     // 목차 줄 꼴: 내용이 있고, 꼬리에 페이지 번호가 붙어 있을 수 있다.
     // 페이지참조 잔재는 cleanRfpMarkdown이 이미 지웠으므로 "제목 [탭·공백] 숫자"만 남는다.
-    const title = line.replace(/[\s.·…]*\d+\s*$/, '').trim()
+    const title = line.replace(TOC_PAGE_TAIL_RE, '').trim()
     if (title === '') continue
 
     const range = findSectionLine(markdown, title)
