@@ -33,6 +33,8 @@ export interface AssistantMeta {
   activeDocId: string | null
   /** 이 답변이 만들어낸 파일(비교표·핵심 정리) — 답변 아래 열기 카드로 붙는다. */
   fileIds?: string[]
+  /** LLM reasoning 요약("생각 과정") — 세션과 함께 저장해 새로고침 후에도 다시 펼 수 있다. */
+  reasoning?: string | null
 }
 
 export interface ChatMessage {
@@ -383,6 +385,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
                     citations: res.citations,
                     cost: res.cost,
                     activeDocId: res.active_doc_id,
+                    reasoning: res.reasoning ?? null,
                   },
                 },
               ],
