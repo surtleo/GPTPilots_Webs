@@ -50,14 +50,28 @@ const ChatFlowsContext = createContext<ChatFlowsValue | null>(null)
 
 const NO_MATCH = '해당 없음'
 
-/** 판정별 건수 — "참가 가능"처럼 뭉뚱그리지 않고 백엔드 verdict 그대로 센다. */
+/**
+ * 판정별 건수 — "참가 가능"처럼 뭉뚱그리지 않고 백엔드 verdict 그대로 센다.
+ *
+ * 참가불가를 따로 세는 이유: 목록에 함께 실리는데 건수를 안 알려주면 "추천이 왜 이것뿐이지"가
+ * 된다(실사용 피드백). 실측 — 대기업 계열사 프로필에서 후보 8건 중 5건이 참가불가였다.
+ */
 function verdictBreakdown(items: { verdict: string }[]): string {
-  const ok = items.filter((r) => r.verdict === '적격').length
-  const check = items.length - ok
   if (items.length === 0) return '0건'
-  if (check === 0) return `적격 ${ok}건`
-  if (ok === 0) return `확인필요 ${check}건`
-  return `적격 ${ok}건 · 확인필요 ${check}건`
+  const counts: [string, number][] = [
+    ['적격', items.filter((r) => r.verdict === '적격').length],
+    ['확인필요', items.filter((r) => r.verdict === '확인필요').length],
+    ['참가불가', items.filter((r) => r.verdict === '참가불가').length],
+  ]
+  return counts
+    .filter(([, n]) => n > 0)
+    .map(([label, n]) => `${label} ${n}건`)
+    .join(' · ')
+}
+
+/** 지원할 수 있는 것만 — 참가불가는 목록에 보이되 "담아뒀다"고 셀 수는 없다. */
+function eligibleCount(items: { verdict: string }[]): number {
+  return items.filter((r) => r.verdict !== '참가불가').length
 }
 
 /** 추천 진행 단계 — 백엔드 스트림 이벤트를 그대로 단계 리스트로 옮긴다. */
@@ -136,11 +150,19 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     // "참가 가능"이라고 뭉뚱그리지 않는다: 백엔드는 적격과 확인필요를 함께 돌려주는데,
     // 확인필요는 미충족 요건이 1건 이상 있다는 판정이다(src/eligibility.py `_build_verdict`).
     // 이걸 전부 "참가 가능"으로 재서술하면 프론트가 판정을 바꿔 말하는 셈이 된다.
+    const blocked = items.length - eligibleCount(items)
     pushLocal(
       'assistant',
-      items.length > 0
-        ? `참가자격을 대조해 ${verdictBreakdown(items)}을 왼쪽 맞춤 공고에 담아뒀어요. 확인필요는 미충족 요건이 남아 있다는 뜻이라 뱃지를 꼭 봐주세요. 체크하시면 그 공고를 근거로 답하고, 준비 점검·비교표·핵심 정리도 만들 수 있어요.`
-        : '자격이 걸리지 않는 공고를 찾지 못했어요. 회사 소개를 더 구체적으로 적거나 보유 자격을 체크하시면 결과가 달라질 수 있어요.',
+      items.length === 0
+        ? '자격이 걸리지 않는 공고를 찾지 못했어요. 회사 소개를 더 구체적으로 적거나 보유 자격을 체크하시면 결과가 달라질 수 있어요.'
+        : eligibleCount(items) === 0
+          ? // 전부 참가불가인 경우 — "담아뒀어요"라고 하면 지원할 수 있는 것처럼 읽힌다
+            `대조해봤더니 찾은 ${items.length}건 전부 참여가 막혀 있어요(${verdictBreakdown(items)}). 왼쪽 목록에서 빨간 뱃지를 눌러 어떤 조항 때문인지 보실 수 있어요. 프로필의 기업 규모 답변을 바꾸면 결과가 달라질 수 있어요.`
+          : `참가자격을 대조해 ${verdictBreakdown(items)}을 왼쪽 맞춤 공고에 담아뒀어요.` +
+            (blocked > 0
+              ? ` 참가불가 ${blocked}건은 법적으로 참여가 막힌 공고라 목록 맨 아래에 빨간 뱃지로 뒀어요 — 눌러보시면 어떤 조항 때문인지 나와요.`
+              : '') +
+            ` 확인필요는 미충족 요건이 남아 있다는 뜻이라 뱃지를 꼭 봐주세요. 체크하시면 그 공고를 근거로 답하고, 준비 점검·비교표·핵심 정리도 만들 수 있어요.`,
       { sessionId },
     )
   }, [recoLoading, recoError, progress, items, patchCard, pushLocal])
