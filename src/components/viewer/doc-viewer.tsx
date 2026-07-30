@@ -100,6 +100,7 @@ export function DocViewer({ docId }: { docId: string }) {
                 <FullText
                   docId={docId}
                   quote={citeForThisDoc?.quote ?? null}
+                  section={citeForThisDoc?.section ?? null}
                   nonce={citeForThisDoc?.nonce ?? 0}
                   scrollRef={scrollRef}
                   flashRef={flashRef}
@@ -199,6 +200,63 @@ function QualRow({ state, text, why }: { state: 'ok' | 'miss'; text: string; why
 }
 
 /**
+ * "3. 제출서류" · "제3장 사업개요" · "Ⅲ. 평가기준" · "가. 일반사항" 같은 번호 매김 접두.
+ * 순수 숫자는 "3." · "3)" · "3.1" 처럼 구분 기호를 요구한다 — 안 그러면 "2026년 …" 같은
+ * 본문 줄이 전부 번호 매김으로 오인된다.
+ */
+const NUMBERING_RE =
+  /^(?:제\s*\d+\s*[장절조항편]|\d+(?:\.\d+)+\.?|\d+[.)]|[ⅰ-ⅻⅠ-Ⅻ]+\s*[.)]|[IVXLC]+\s*[.)]|[가-힣][.)]|[①-⑳])\s*/
+
+/** 공백 차이("사업 개요" vs "사업개요")로 매칭이 어긋나지 않게 비교용으로만 공백을 걷어낸다. */
+function squash(s: string): string {
+  return s.replace(/\s+/g, '')
+}
+
+/**
+ * 원문 마크다운에서 "섹션 제목처럼 보이는 줄"을 찾아 그 줄 전체의 범위를 돌려준다.
+ *
+ * 백엔드 citations엔 발췌문(quote)이 없고 섹션명만 온다(NDA 정책, src/api/core.py) —
+ * 그래서 섹션명을 원문 전체에서 검색하는 대신 **제목 줄만** 앵커로 삼는다. 본문 문장이나
+ * 다른 대목에 섹션명이 우연히 등장해도 밝히지 않기 위해서다.
+ *
+ * "제목처럼 보이는" 판정: 줄 머리에 마크다운 헤딩(#…)이나 번호 매김(NUMBERING_RE)이 있고
+ * 바로 뒤에 섹션명이 이어지는 줄, 또는 줄 내용이 섹션명 그 자체인 줄만 인정한다.
+ * 여러 줄이 걸리면 문서 앞 10% 안의 매치는 목차일 가능성이 높으니, 그 뒤에 다른 매치가
+ * 있으면 건너뛰고 목차 이후 첫 매치(=실제 본문 제목)를 고른다. 전부 앞 10%에 있으면
+ * 그중 마지막 것을 쓴다(짧은 문서는 목차가 없거나 본문이 바로 시작하는 경우).
+ * 하나도 못 찾으면 null — 억지 근사 매칭으로 엉뚱한 곳을 밝히는 것보다 낫다.
+ */
+function findSectionLine(markdown: string, section: string): { start: number; end: number } | null {
+  const target = squash(section)
+  if (!target) return null
+
+  const candidates: { start: number; end: number }[] = []
+  let offset = 0
+  for (const line of markdown.split('\n')) {
+    const lineStart = offset
+    offset += line.length + 1 // 개행 포함
+
+    let rest = line.trimStart()
+    const heading = rest.match(/^#{1,6}\s+/)
+    if (heading) rest = rest.slice(heading[0].length)
+    const numbering = rest.match(NUMBERING_RE)
+    if (numbering) rest = rest.slice(numbering[0].length)
+
+    // 헤딩·번호 매김 뒤에 섹션명이 이어지면 제목 줄로 본다. 목차 줄("3. 제출서류 … 12")도
+    // 여기 걸리는데, 그건 아래 10% 규칙이 걸러낸다. 접두가 아무것도 없으면 줄 전체가
+    // 섹션명과 일치할 때만 인정한다 — 본문 문장 속 우연한 등장을 제목으로 오인하지 않게.
+    const titled =
+      heading || numbering ? squash(rest).startsWith(target) : squash(line.trim()) === target
+    if (titled) candidates.push({ start: lineStart, end: lineStart + line.length })
+  }
+
+  if (candidates.length === 0) return null
+  const tocCutoff = markdown.length * 0.1
+  const afterToc = candidates.find((c) => c.start >= tocCutoff)
+  return afterToc ?? candidates[candidates.length - 1]
+}
+
+/**
  * 원문 전문 + 인용 하이라이트.
  *
  * 원문을 마크다운으로 렌더하지 않고 그대로 내는 건 의도적이다 — hwp 추출본이라 표·기호가
@@ -207,12 +265,14 @@ function QualRow({ state, text, why }: { state: 'ok' | 'miss'; text: string; why
 function FullText({
   docId,
   quote,
+  section,
   nonce,
   scrollRef,
   flashRef,
 }: {
   docId: string
   quote: string | null
+  section: string | null
   nonce: number
   scrollRef: React.RefObject<HTMLDivElement | null>
   flashRef: React.RefObject<HTMLSpanElement | null>
@@ -235,16 +295,25 @@ function FullText({
 
   const parts = useMemo(() => {
     if (!markdown) return null
+    // quote(진짜 발췌문)가 있으면 그걸 최우선으로 exact match — 지금 백엔드는 안 주지만
+    // 계약이 바뀌어 주기 시작하면 자동으로 더 정확한 쪽을 쓴다. 없으면 섹션 제목 줄을
+    // 앵커로 삼는다(findSectionLine 주석 참고).
     const at = quote ? markdown.indexOf(quote) : -1
-    // 인용문이 원문에 그대로 없을 수도 있다(LLM이 다듬어 인용한 경우) — 그땐 조용히
+    const range =
+      at >= 0
+        ? { start: at, end: at + quote!.length }
+        : quote || !section
+          ? null
+          : findSectionLine(markdown, section)
+    // 인용문이 원문에 그대로 없거나 제목 줄을 못 찾을 수도 있다 — 그땐 조용히
     // 하이라이트 없이 원문만 보여준다. 억지로 근사 매칭해서 엉뚱한 곳을 밝히면 더 나쁘다.
-    if (at < 0) return { before: markdown, match: '', after: '' }
+    if (!range) return { before: markdown, match: '', after: '' }
     return {
-      before: markdown.slice(0, at),
-      match: quote!,
-      after: markdown.slice(at + quote!.length),
+      before: markdown.slice(0, range.start),
+      match: markdown.slice(range.start, range.end),
+      after: markdown.slice(range.end),
     }
-  }, [markdown, quote])
+  }, [markdown, quote, section])
 
   // 하이라이트가 그려진 다음 프레임에 스크롤해야 위치가 잡힌다.
   useLayoutEffect(() => {

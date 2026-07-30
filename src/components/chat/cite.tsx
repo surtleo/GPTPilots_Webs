@@ -98,7 +98,9 @@ export function CiteChip({ n, citation }: { n: number; citation: Citation }) {
     >
       {/* quote로 section을 넘기면 안 된다 — 원문에 "제출서류" 같은 섹션명이 우연히
           다른 곳(목차 등)에도 있으면 그 엉뚱한 위치가 하이라이트·스크롤된다.
-          여기선 실제 인용 발췌문이 없으니(위 주석 참고) 정직하게 null로 둔다. */}
+          여기선 실제 인용 발췌문이 없으니(위 주석 참고) 정직하게 null로 두고,
+          섹션 위치 점프는 뷰어가 section으로 제목 줄만 골라 찾는다(doc-viewer.tsx
+          findSectionLine). */}
       <button
         onClick={() => docId && openCite(docId, null, section)}
         disabled={!docId}
