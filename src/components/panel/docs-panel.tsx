@@ -126,7 +126,7 @@ function RecoTab({ onBrowseAll }: { onBrowseAll: () => void }) {
 
   if (loading && items.length === 0) {
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-3">
         <ProgressSteps progress={progress} />
       </div>
     )
@@ -173,7 +173,7 @@ function RecoTab({ onBrowseAll }: { onBrowseAll: () => void }) {
         참가자격 대조 완료 {items.length}건 · 체크하면 대화에 첨부돼요
       </p>
 
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
         <div className="flex flex-col gap-1.5">
           {filtered.map((r) => (
             <RecoRow
@@ -414,7 +414,7 @@ function FilesTab() {
       <p className="mx-4 mb-2 text-[11px] leading-relaxed text-muted-foreground">
         채팅에서 만든 표·정리가 여기 쌓여요 · 공고 원문은 답변의 출처로 열람해요
       </p>
-      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
+      <div className="no-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
         {files.length === 0 ? (
           <p className="px-1 text-[11.5px] leading-relaxed text-muted-foreground">
             아직 없어요 — 채팅에서 비교표·핵심 정리를 요청하면 여기 저장돼요.
