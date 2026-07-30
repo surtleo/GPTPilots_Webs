@@ -21,6 +21,49 @@ const SOURCE_RE = /\(출처:\s*([^,()]+?)(?:\s*,\s*([^()]+?))?\)/g
 /** 같은 근거를 반복 인용할 때 백엔드 프롬프트가 쓰는 표기(src/query/generate.py). */
 const SAME_AS_ABOVE = '동일'
 
+/** 공고 등록정보(data_list.csv 유래 문서 헤더) 블록의 출처 라벨(src/query/retrieve.py). */
+const REGISTRY_LABEL = '공고 등록정보'
+
+const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+
+/**
+ * 사업명 매칭 — 정확 일치를 우선하되, 모델이 "사업명 (발주기관)" 꼬리를 떼고 쓰는 일이
+ * 잦아 접두 일치도 허용한다. 접두 일치는 8자 이상일 때만 — 짧은 표기가 엉뚱한 공고에
+ * 들러붙는 것을 막는다.
+ */
+function findByName(citations: Citation[], name: string): Citation | undefined {
+  return (
+    citations.find((c) => norm(c.사업명 ?? '') === name) ??
+    (name.length >= 8
+      ? citations.find((c) => {
+          const n = norm(c.사업명 ?? '')
+          return n !== '' && (n.startsWith(name) || name.startsWith(n))
+        })
+      : undefined)
+  )
+}
+
+/**
+ * 섹션 매칭 — 모델이 사업명 없이 `(출처: 4. 상세 요구사항)`처럼 섹션만 적을 때의 폴백.
+ * 섹션은 `A > B` 경로일 수 있어 마지막까지 조각 단위로 대조한다. 서로 다른 문서에 같은
+ * 섹션명이 있으면(문서가 여럿 섞인 답변) 어느 원문인지 확정할 수 없으므로 달지 않는다.
+ */
+function findBySection(citations: Citation[], label: string): Citation | undefined {
+  if (!label) return undefined
+  const hits = citations.filter((c) => {
+    const sec = norm(c.섹션 ?? '')
+    if (sec === '') return false
+    if (sec === label) return true
+    return sec
+      .split('>')
+      .map((seg) => seg.trim())
+      .includes(label)
+  })
+  if (hits.length === 0) return undefined
+  const docIds = new Set(hits.map((h) => h.doc_id ?? ''))
+  return docIds.size === 1 ? hits[0] : undefined
+}
+
 /**
  * 답변 본문의 `(출처: …)` 표기를 마크다운 링크 `[n](cite:n)`으로 바꾸고, 각주 번호 →
  * citation 매핑을 함께 돌려준다. 매칭되는 citation이 없으면 원문 표기를 그대로 둔다 —
@@ -36,22 +79,43 @@ export function linkifyCitations(
   const indexOf = new Map<Citation, number>()
   let next = 1
   let lastHit: Citation | null = null
+  // "(출처: 공고 등록정보)"용 합성 근거 — 답변 하나에 하나만 만들어 각주 번호를 공유한다.
+  let registryCite: Citation | null = null
 
   const text = answer.replace(SOURCE_RE, (whole, rawName: string, rawSection?: string) => {
-    const name = rawName.trim()
-    const section = rawSection?.trim()
+    const name = norm(rawName)
+    const section = rawSection ? norm(rawSection) : undefined
 
     // "(출처: 동일)"은 바로 앞에서 쓴 근거를 가리킨다 — 같은 각주 번호를 다시 단다.
     // 다만 "(출처: 동일, 3장)"처럼 섹션이 딸려 오면 그게 직전 근거의 섹션과 맞을 때만
     // 같은 근거로 본다. 어긋나면 다른 대목을 가리키는 것이라 각주를 달지 않는다.
     const sameAsAbove: Citation | undefined =
       lastHit && (!section || (lastHit.섹션 ?? '') === section) ? lastHit : undefined
-    const hit =
-      name === SAME_AS_ABOVE
-        ? sameAsAbove
-        : ((section
-            ? citations.find((c) => (c.사업명 ?? '') === name && (c.섹션 ?? '') === section)
-            : undefined) ?? citations.find((c) => (c.사업명 ?? '') === name))
+    let hit: Citation | undefined
+    if (name === SAME_AS_ABOVE) {
+      hit = sameAsAbove
+    } else {
+      hit =
+        (section
+          ? citations.find((c) => (c.사업명 ?? '') === name && (c.섹션 ?? '') === section)
+          : undefined) ?? findByName(citations, name)
+      // 규약(사업명, 섹션)을 벗어난 표기 폴백 — 모델이 섹션명만 적거나 문서 헤더 라벨을
+      // 그대로 옮겨 적는 경우가 실제로 잦다(프롬프트로는 다 못 막는다).
+      if (!hit)
+        hit =
+          findBySection(citations, name) ??
+          (section ? findBySection(citations, section) : undefined)
+      if (!hit && name.includes(REGISTRY_LABEL)) {
+        // 공고 등록정보는 문서 헤더 블록이라 대응하는 청크 섹션이 없다 — 답변의 근거가
+        // 전부 한 문서라면 그 문서 자체(원문 최상단)를 근거로 단다. 여러 문서가 섞였으면
+        // 어느 공고의 등록정보인지 알 수 없으니 달지 않는다.
+        const docIds = new Set(citations.map((c) => c.doc_id ?? ''))
+        if (docIds.size === 1 && citations[0].doc_id) {
+          registryCite ??= { doc_id: citations[0].doc_id, 사업명: citations[0].사업명, 섹션: null }
+          hit = registryCite
+        }
+      }
+    }
     if (!hit) {
       // 이름이 안 맞아 근거를 못 찾았으면 직전 근거도 끊는다. 안 끊으면 바로 뒤따르는
       // "(출처: 동일)"이 방금 실패한 그 근거가 아니라 그 이전 근거를 집어간다 — 사용자가
