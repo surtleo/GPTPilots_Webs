@@ -490,6 +490,31 @@ function RfpBlockView({
         </div>
       )
     }
+    case 'span-table':
+      // 백엔드가 셀 레코드에서 실측한 colspan·rowspan 그대로 — 여기엔 격자/양식
+      // 휴리스틱이 필요 없다(그 휴리스틱은 병합 정보가 없는 구 마크다운 표 전용).
+      return (
+        <div className="my-3 overflow-x-auto">
+          <table className="w-full border-collapse text-[12.5px]">
+            <tbody>
+              {block.rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td
+                      key={ci}
+                      colSpan={cell.colSpan > 1 ? cell.colSpan : undefined}
+                      rowSpan={cell.rowSpan > 1 ? cell.rowSpan : undefined}
+                      className={cellClass}
+                    >
+                      {cell.text}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
     case 'lines':
       return (
         <>

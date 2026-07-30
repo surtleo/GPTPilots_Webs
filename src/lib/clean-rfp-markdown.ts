@@ -171,11 +171,55 @@ export function cleanRfpMarkdown(markdown: string): string {
  */
 export type RfpLine = { text: string; offset: number }
 
+/** 백엔드가 실측한 병합 정보 그대로의 셀 — span은 1 이상으로 정규화돼 온다. */
+export type SpanCell = { text: string; colSpan: number; rowSpan: number }
+
 export type RfpBlock =
   | { type: 'table'; header: string[] | null; rows: string[][]; maxCols: number }
+  | { type: 'span-table'; rows: SpanCell[][] }
   | { type: 'heading'; text: string }
   | { type: 'bold'; text: string }
   | { type: 'lines'; lines: RfpLine[] }
+
+/**
+ * 백엔드 HTML 표 한 줄(`<table><tr><td colspan…>…</table>`, hwp5_nested_fix.py가
+ * 병합 셀이 있는 표만 이 꼴로 직렬화)을 셀 텍스트·colspan·rowspan만 남긴 구조로 판다.
+ *
+ * DOMParser 파싱 결과에서 **텍스트와 span 숫자만** 꺼낸다 — 파싱된 노드나 innerHTML을
+ * 렌더 트리에 넣지 않으므로 원문에 태그가 섞여 있어도 실행될 수 없다(XSS 차단).
+ * 표가 아니거나 행이 없으면 null — 호출부가 평문 줄로 그대로 흘려보낸다.
+ */
+function parseHtmlTable(line: string): SpanCell[][] | null {
+  const doc = new DOMParser().parseFromString(line, 'text/html')
+  const table = doc.querySelector('table')
+  if (!table) return null
+  // table.rows/row.cells는 이 표 자신의 행·셀만 준다(중첩 <table>은 제외) —
+  // querySelectorAll('tr')처럼 중첩 표 행까지 끌어오지 않는다.
+  const rows: SpanCell[][] = []
+  for (const tr of table.rows) {
+    const cells: SpanCell[] = []
+    for (const td of tr.cells) {
+      cells.push({
+        text: cellTextContent(td),
+        colSpan: Math.max(1, td.colSpan || 1),
+        rowSpan: Math.max(1, td.rowSpan || 1),
+      })
+    }
+    rows.push(cells)
+  }
+  return rows.some((r) => r.length > 0) ? rows : null
+}
+
+/** 셀 안 텍스트를 <br>=줄바꿈으로 살려서 뽑는다 — textContent는 <br>를 버린다. */
+function cellTextContent(node: Node): string {
+  let out = ''
+  for (const child of node.childNodes) {
+    if (child.nodeType === Node.TEXT_NODE) out += child.nodeValue ?? ''
+    else if (child.nodeName === 'BR') out += '\n'
+    else out += cellTextContent(child)
+  }
+  return out
+}
 
 export function parseRfpBlocks(cleaned: string): RfpBlock[] {
   const lines = cleaned.split('\n')
@@ -197,6 +241,16 @@ export function parseRfpBlocks(cleaned: string): RfpBlock[] {
     const line = lines[i]
     const lineOffset = offset
     offset += line.length + 1
+
+    // 백엔드가 병합 표를 한 줄 HTML로 내보낸다 — 파이프 표보다 먼저 식별한다.
+    if (/^\s*<table>/.test(line) && line.includes('</table>')) {
+      const spanRows = parseHtmlTable(line)
+      if (spanRows) {
+        flushText()
+        blocks.push({ type: 'span-table', rows: spanRows })
+        continue
+      }
+    }
 
     if (isTableRow(line)) {
       flushText()
