@@ -43,3 +43,5 @@ chroma*/
 .playwright-mcp/
 bidmate-shell.png
 smoke-*.png
+.superpowers/
+.harness-worktrees/

@@ -11,7 +11,13 @@ import {
 
 import { ApiError, fetchEligibility, type EligibilityResult } from '@/lib/api'
 import { useActiveDocs } from '@/lib/active-docs-context'
-import type { MessageCard, ReportItem, StepItem } from '@/lib/chat-cards'
+import {
+  qualificationSummary,
+  REPORT_STATE_LABEL,
+  type MessageCard,
+  type ReportItem,
+  type StepItem,
+} from '@/lib/chat-cards'
 import { useChatSessions } from '@/lib/chat-sessions-context'
 import { verdictBadge } from '@/lib/format'
 import { QUALIFICATION_OPTIONS, useProfile } from '@/lib/profile-context'
@@ -296,14 +302,21 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
           why: '보유하고 계시면 프로필에서 체크해 주세요 — 체크하면 다시 판정해 드려요',
         })
       }
+      const counts = {
+        total: result.total,
+        met: result.met.length,
+        unmet: result.unmet.length,
+        unclear: result.unclear_count,
+      }
       const note = `요건 ${result.total}건 중 ${result.met.length}건 확인, ${result.unmet.length}건 미충족, ${result.unclear_count}건 미확인이에요. 근거가 없는 항목은 충족으로 치지 않았어요.`
+      // 파일로 저장되는 본문 — 화면의 판정 표와 같은 3열(요건|판정|근거) 마크다운 표.
+      // 셀 안의 `|`·개행은 표를 깨뜨리므로 이스케이프한다.
+      const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ')
       const body =
-        `■ 판정: ${badge.label}\n\n` +
+        `■ 판정: ${badge.label}\n${qualificationSummary(counts)}\n\n` +
+        `| 요건 | 판정 | 근거 |\n| --- | --- | --- |\n` +
         reportItems
-          .map(
-            (x) =>
-              `${x.state === 'ok' ? '🟢' : x.state === 'miss' ? '🔴' : '🟡'} ${x.text}\n   ${x.why}`,
-          )
+          .map((x) => `| ${cell(x.text)} | ${REPORT_STATE_LABEL[x.state]} | ${cell(x.why)} |`)
           .join('\n') +
         `\n\n■ 유의\n· ${note}\n· 1순위 선정 ≠ 계약. 자격은 계약체결일까지 유지해야 합니다.`
       return {
@@ -314,6 +327,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
           tone: badge.tone,
           items: reportItems,
           note,
+          counts,
         },
         body,
       }

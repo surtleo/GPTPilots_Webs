@@ -39,6 +39,8 @@ export interface AskResponse {
   active_doc_id: string | null
   citations: Citation[]
   cost: Cost
+  /** LLM reasoning 요약 — 생성 경로에서만 옴(즉답·반문·무근거는 null). 구버전 백엔드엔 없다. */
+  reasoning?: string | null
 }
 
 export interface HistoryTurn {
@@ -132,6 +134,7 @@ export async function ask(
     active_doc_id: data.active_doc_id ?? null,
     citations: Array.isArray(data.citations) ? data.citations : [],
     cost: data.cost && typeof data.cost === 'object' ? data.cost : {},
+    reasoning: typeof data.reasoning === 'string' ? data.reasoning : null,
   }
 }
 
