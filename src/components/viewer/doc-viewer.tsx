@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, FileText, X } from 'lucide-react'
 
 import { ApiError, fetchRfpContent, type RecommendationItem } from '@/lib/api'
+import { QualificationTable } from '@/components/qualification-table'
+import type { ReportItem } from '@/lib/chat-cards'
 import { useRfp } from '@/hooks/use-rfps'
 import {
   deadlineBadge,
@@ -148,6 +150,22 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
 function QualificationBlock({ reco }: { reco: RecommendationItem }) {
   const badge = verdictBadge(reco.verdict, reco.unclear_count, reco.missing_count)
 
+  // 요건·사유는 백엔드 판정을 그대로 표에 싣는다. 미확인은 개수만 오는 계약이라
+  // "확인 못 한 요건 N건" 행 하나로 만든다 — 어떤 요건인지 지어내면 안 된다.
+  const rows: ReportItem[] = [
+    ...reco.met.map<ReportItem>((m) => ({ state: 'ok', text: m.requirement, why: m.reason })),
+    ...reco.unmet.map<ReportItem>((m) => ({ state: 'miss', text: m.requirement, why: m.reason })),
+    ...(reco.unclear_count > 0
+      ? [
+          {
+            state: 'unclear' as const,
+            text: `프로필에 언급이 없어 확인 못 한 요건 ${reco.unclear_count}건`,
+            why: '참가자격상 문제로 세지는 않았어요',
+          },
+        ]
+      : []),
+  ]
+
   return (
     <div className="mx-6.5 mb-4 overflow-hidden rounded-[10px] border border-border">
       <div className="flex items-center gap-2 bg-secondary px-3 py-2">
@@ -158,43 +176,17 @@ function QualificationBlock({ reco }: { reco: RecommendationItem }) {
         </span>
         <span className="text-[11.5px] text-muted-foreground">회사 프로필 기준 참가자격 판정</span>
       </div>
-      <div className="flex flex-col gap-1.5 px-3 py-2.5">
-        {reco.met.map((m) => (
-          <QualRow key={`met-${m.requirement}`} state="ok" text={m.requirement} why={m.reason} />
-        ))}
-        {reco.unmet.map((m) => (
-          <QualRow
-            key={`unmet-${m.requirement}`}
-            state="miss"
-            text={m.requirement}
-            why={m.reason}
-          />
-        ))}
-        {reco.unclear_count > 0 && (
-          <p className="mt-0.5 text-[11.5px] text-muted-foreground">
-            프로필에 언급이 없어 확인 못 한 항목 {reco.unclear_count}건 (참가자격상 문제로 세지는
-            않았어요)
-          </p>
-        )}
+      <div className="px-3 py-2.5">
+        <QualificationTable
+          rows={rows}
+          counts={{
+            total: reco.total,
+            met: reco.met.length,
+            unmet: reco.unmet.length,
+            unclear: reco.unclear_count,
+          }}
+        />
       </div>
-    </div>
-  )
-}
-
-function QualRow({ state, text, why }: { state: 'ok' | 'miss'; text: string; why: string }) {
-  return (
-    <div className="flex items-start gap-2 text-[12.5px] leading-normal">
-      <span
-        className={cn(
-          'mt-px grid size-4 shrink-0 place-items-center rounded-full text-[10px] font-bold',
-          state === 'ok' ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger',
-        )}
-      >
-        {state === 'ok' ? '✓' : '✕'}
-      </span>
-      <span className="flex-1">
-        {text} <span className="text-muted-foreground">— {why}</span>
-      </span>
     </div>
   )
 }

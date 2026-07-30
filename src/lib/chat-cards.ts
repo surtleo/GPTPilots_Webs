@@ -29,6 +29,28 @@ export interface ReportItem {
   why: string
 }
 
+/**
+ * 판정 상태 → 표기 라벨. 화면(판정 표)과 파일로 저장되는 마크다운 표가 같은 문구를
+ * 쓰도록 한 곳에 둔다 — 흩어지면 화면과 저장본의 판정 표기가 어긋난다.
+ */
+export const REPORT_STATE_LABEL: Record<ReportItem['state'], string> = {
+  ok: '✓ 충족',
+  miss: '✕ 미충족',
+  unclear: '? 미확인',
+}
+
+export interface QualificationCounts {
+  total: number
+  met: number
+  unmet: number
+  unclear: number
+}
+
+/** "요건 N건 중 충족 a · 미충족 b · 미확인 c" — 표 위 요약 한 줄. 저장 본문에서도 같은 문구를 쓴다. */
+export function qualificationSummary(counts: QualificationCounts): string {
+  return `요건 ${counts.total}건 중 충족 ${counts.met} · 미충족 ${counts.unmet} · 미확인 ${counts.unclear}`
+}
+
 export type MessageCard =
   /** failed: 중간에 끊겼다는 뜻. done만 있으면 실패도 "완료"로 보여 거짓 보고가 된다. */
   | { kind: 'steps'; steps: StepItem[]; done: boolean; failed?: boolean }
@@ -40,6 +62,11 @@ export type MessageCard =
       tone: VerdictTone
       items: ReportItem[]
       note: string
+      /**
+       * 표 위 요약 한 줄용 집계. 이전 버전이 저장한 카드에는 없어서 옵션이다 —
+       * 없으면 요약 줄만 생략하고 표는 그대로 그린다.
+       */
+      counts?: { total: number; met: number; unmet: number; unclear: number }
     }
 
 // 반문(clarify)은 카드를 따로 저장하지 않는다 — 후보 목록이 답변 본문 안에 그대로 들어 있어서

@@ -1,6 +1,7 @@
 import { LoaderCircle, MessageSquareText } from 'lucide-react'
 
 import type { MessageCard, ReportItem, StepItem } from '@/lib/chat-cards'
+import { QualificationTable } from '@/components/qualification-table'
 import { VERDICT_TONE_CLASS } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -35,6 +36,7 @@ export function MessageCardView({
       tone={card.tone}
       items={card.items}
       note={card.note}
+      counts={card.counts}
     />
   )
 }
@@ -140,12 +142,14 @@ function ReportCard({
   tone,
   items,
   note,
+  counts,
 }: {
   title: string
   verdict: string
   tone: keyof typeof VERDICT_TONE_CLASS
   items: ReportItem[]
   note: string
+  counts?: { total: number; met: number; unmet: number; unclear: number }
 }) {
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -156,26 +160,7 @@ function ReportCard({
         <span className="min-w-0 truncate text-[11.5px] text-muted-foreground">{title}</span>
       </div>
       <div className="flex flex-col gap-1.5 px-3.5 py-2.5">
-        {items.map((q, i) => (
-          <div
-            key={`${q.text}-${i}`}
-            className="flex items-start gap-2 text-[12.5px] leading-normal"
-          >
-            <span
-              className={cn(
-                'mt-px grid size-4 shrink-0 place-items-center rounded-full text-[10px] font-bold',
-                q.state === 'ok' && 'bg-success-soft text-success',
-                q.state === 'miss' && 'bg-danger-soft text-danger',
-                q.state === 'unclear' && 'bg-warning-soft text-warning',
-              )}
-            >
-              {q.state === 'ok' ? '✓' : q.state === 'miss' ? '✕' : '?'}
-            </span>
-            <span className="flex-1">
-              {q.text} {q.why && <span className="text-muted-foreground">— {q.why}</span>}
-            </span>
-          </div>
-        ))}
+        <QualificationTable rows={items} counts={counts} />
         {note && <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{note}</p>}
       </div>
     </div>
