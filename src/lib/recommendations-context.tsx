@@ -34,10 +34,14 @@ interface RecommendationsValue {
    *  0건도 엄연한 결과라서 items.length로는 구분이 안 된다. */
   cachedFor: string | null
   /** profileText가 이미 캐시된 것과 같으면 아무 것도 안 한다 — 재요청 없이 캐시를 그대로 보여준다.
-   *  화면(탭)을 오갈 때마다 매번 새로 부르지 않게 하려고 존재하는 함수. */
-  ensure: (profileText: string) => void
+   *  화면(탭)을 오갈 때마다 매번 새로 부르지 않게 하려고 존재하는 함수.
+   *
+   *  searchText는 후보 검색에만 쓰이는 짧은 텍스트(선택). profileText가 searchText를
+   *  포함하는 상위 텍스트라 캐시 키는 profileText 하나로 충분하다 — profileText가 같으면
+   *  searchText도 같다. */
+  ensure: (profileText: string, searchText?: string) => void
   /** 캐시 여부와 무관하게 강제로 다시 부른다 — "다시 시도"·"프로필 수정 후 다시 찾기"용. */
-  refresh: (profileText: string) => void
+  refresh: (profileText: string, searchText?: string) => void
 }
 
 const RecommendationsContext = createContext<RecommendationsValue | null>(null)
@@ -92,7 +96,7 @@ export function RecommendationsProvider({ children }: { children: ReactNode }) {
   const WATCHDOG_TIMEOUT_MS = 30_000
   const watchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const fetchFor = useCallback((profileText: string) => {
+  const fetchFor = useCallback((profileText: string, searchText?: string) => {
     abortRef.current?.abort()
     if (watchdogRef.current) clearTimeout(watchdogRef.current)
     const controller = new AbortController()
@@ -143,6 +147,7 @@ export function RecommendationsProvider({ children }: { children: ReactNode }) {
         }
       },
       controller.signal,
+      searchText,
     )
       .catch((err: unknown) => {
         if (controller.signal.aborted) return
@@ -157,19 +162,19 @@ export function RecommendationsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const ensure = useCallback(
-    (profileText: string) => {
+    (profileText: string, searchText?: string) => {
       if (!profileText.trim()) return
       if (profileText === profileTextCached && !error) return // 이미 캐시됨 — 재요청 없음
       if (inFlightForRef.current === profileText) return // 이미 같은 요청이 나가 있음
-      fetchFor(profileText)
+      fetchFor(profileText, searchText)
     },
     [profileTextCached, error, fetchFor],
   )
 
   const refresh = useCallback(
-    (profileText: string) => {
+    (profileText: string, searchText?: string) => {
       if (!profileText.trim()) return
-      fetchFor(profileText)
+      fetchFor(profileText, searchText)
     },
     [fetchFor],
   )

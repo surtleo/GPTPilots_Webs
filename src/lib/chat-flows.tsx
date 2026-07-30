@@ -92,7 +92,7 @@ function recoSteps(
 
 export function ChatFlowsProvider({ children }: { children: ReactNode }) {
   const { docs } = useActiveDocs()
-  const { profile, setProfile, combinedText } = useProfile()
+  const { profile, setProfile, matchText, searchText } = useProfile()
   const {
     items,
     loading: recoLoading,
@@ -161,7 +161,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      if (!combinedText.trim()) {
+      if (!matchText.trim()) {
         pushLocal(
           'assistant',
           '먼저 회사 프로필을 작성해 주세요. 왼쪽 아래 “내 회사 프로필”에서 해오신 사업과 보유 자격을 채우시면, 그걸로 공고의 참가자격을 대조해 드려요.',
@@ -172,7 +172,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       // 굳이 다시 돌릴 이유가 없다. 판단 기준을 items 개수가 아니라 cachedFor로 두는 게
       // 중요하다: 0건도 엄연한 결과이고, 개수로 판단하면 "0건 캐시" 상태에서 ensure()가
       // 조용히 조기 반환해 진행 카드가 영원히 도는 채로 멈춘다.
-      const cacheValid = cachedFor !== null && cachedFor === combinedText && !recoError
+      const cacheValid = cachedFor !== null && cachedFor === matchText && !recoError
       if (cacheValid && !/다시/.test(text)) {
         pushLocal(
           'assistant',
@@ -183,7 +183,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      refresh(combinedText)
+      refresh(matchText, searchText)
       // pushLocal('user', text) 위에서 이미 세션을 확정지었으니(없었으면 방금 만들어졌으니)
       // 그 직후 시점의 currentId를 그대로 이 흐름이 쓸 세션으로 고정한다 — 대조가 도는
       // 1~2분 동안 사용자가 다른 대화로 넘어가도 이 흐름은 시작한 세션에 계속 쓴다.
@@ -196,7 +196,8 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       recoCardRef.current = { id: cardId, sessionId }
     },
     [
-      combinedText,
+      matchText,
+      searchText,
       items,
       cachedFor,
       recoError,
@@ -358,7 +359,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       if (!target) return
       pushLocal('user', text)
       const sessionId = peekCurrentId() ?? undefined
-      if (!combinedText.trim()) {
+      if (!matchText.trim()) {
         pushLocal(
           'assistant',
           '판정하려면 회사 프로필이 필요해요. 왼쪽 아래 “내 회사 프로필”을 먼저 채워주세요.',
@@ -369,7 +370,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       const title = target.사업명 ?? target.doc_id
       setBusy('공고 요건을 뽑아 프로필과 대조하는 중…')
       try {
-        await judge(target.doc_id, title, combinedText, sessionId)
+        await judge(target.doc_id, title, matchText, sessionId)
         // 확인 못 한 자격이 남아 있으면 되묻는다. 프로토타입의 확인 질문과 같은 자리인데,
         // 물어보는 항목이 지어낸 게 아니라 프로필에서 실제로 체크가 빠진 것들이다.
         if (uncheckedQualifications.length > 0) {
@@ -393,7 +394,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
         setBusy(null)
       }
     },
-    [docs, combinedText, judge, uncheckedQualifications, pushLocal, peekCurrentId],
+    [docs, matchText, judge, uncheckedQualifications, pushLocal, peekCurrentId],
   )
 
   const answerAsk = useCallback(
@@ -417,7 +418,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       if (!target) return
       // 프로필이 바뀌었으니 같은 문서를 다시 판정한다. combinedText는 다음 렌더에야
       // 갱신되므로, 방금 고른 자격을 넣은 텍스트를 여기서 직접 만들어 넘긴다.
-      const profileText = [combinedText, `- ${option}`].join('\n')
+      const profileText = [matchText, `- ${option}`].join('\n')
       setBusy('바뀐 프로필로 다시 판정하는 중…')
       try {
         await judge(target.doc_id, target.사업명 ?? target.doc_id, profileText, sessionId)
@@ -439,7 +440,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       docs,
       profile.qualifications,
       setProfile,
-      combinedText,
+      matchText,
       judge,
       peekCurrentId,
     ],

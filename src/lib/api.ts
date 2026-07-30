@@ -299,6 +299,13 @@ export async function streamRecommendations(
   profileText: string,
   onEvent: (event: RecommendationProgressEvent) => void,
   signal?: AbortSignal,
+  /**
+   * 공고 후보를 고를 때만 쓸 짧은 텍스트(자유서술 + 주력 분야). 참가자격 대조에는
+   * profileText 전체가 쓰인다. 생략하면 백엔드가 profileText로 둘 다 한다(기존 동작).
+   * 자격 체크리스트를 검색에 섞으면 회사별 구분이 희석된다 — 근거는
+   * profile-context.tsx의 searchText 주석 참고.
+   */
+  searchText?: string,
 ): Promise<void> {
   if (!API_URL) {
     onEvent({ type: 'error', message: 'VITE_API_URL이 설정되지 않았습니다. .env를 확인하세요.' })
@@ -313,7 +320,10 @@ export async function streamRecommendations(
         'Content-Type': 'application/json',
         ...(API_TOKEN ? { 'X-API-Token': API_TOKEN } : {}),
       },
-      body: JSON.stringify({ profile_text: profileText }),
+      body: JSON.stringify({
+        profile_text: profileText,
+        ...(searchText?.trim() ? { search_text: searchText.trim() } : {}),
+      }),
       signal,
     })
   } catch (err) {
