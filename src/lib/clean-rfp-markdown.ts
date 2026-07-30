@@ -28,15 +28,26 @@ function isTableRow(line: string): boolean {
   return /^\s*\|.*\|\s*$/.test(line)
 }
 
-/** 표 행을 셀 배열로 (양끝 파이프 제거·trim). 표 행이 아니면 null. */
+/**
+ * 표 행을 셀 배열로 (양끝 파이프 제거·trim). 표 행이 아니면 null.
+ *
+ * 백엔드 추출기가 셀 안 중첩 표를 `\|`(셀 구분)·`<br>`(행 구분)으로 직렬화해 넣으므로
+ * (src/ingest/hwp5_nested_fix.py), 이스케이프된 파이프에서는 쪼개지 말고 표시용으로는
+ * `|`와 줄바꿈으로 되돌린다 — 셀은 whitespace-pre-wrap이라 \n이 그대로 줄바꿈이 된다.
+ */
 function rowCells(line: string): string[] | null {
   if (!isTableRow(line)) return null
   return line
     .trim()
     .replace(/^\|/, '')
     .replace(/\|$/, '')
-    .split('|')
-    .map((c) => c.trim())
+    .split(/(?<!\\)\|/)
+    .map((c) =>
+      c
+        .trim()
+        .replace(/\\\|/g, '|')
+        .replace(/<br\s*\/?>/gi, '\n'),
+    )
 }
 
 /** `| --- | :-: |` 같은 GFM 표 구분선 행인가. */
