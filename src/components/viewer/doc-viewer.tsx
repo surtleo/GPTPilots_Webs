@@ -140,9 +140,12 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
 /**
  * 참가자격 판정 — 추천에서 온 문서일 때만 보여준다.
  *
- * 충족(met)·미충족(unmet)은 백엔드가 요건 원문과 사유를 함께 주므로 그대로 쓰고,
- * 확인 못 한 요건은 개수만 온다(unclear_count) — 어떤 요건인지는 계약에 없어서
- * 개수만 적는다. 여기서 임의로 "아마 이것들일 것"이라고 지어내면 안 된다.
+ * 충족(met)·미충족(unmet)·불명(unclear) 전부 백엔드가 요건 원문과 사유를 함께 준다.
+ *
+ * 불명 요건을 개수가 아니라 목록으로 보여주는 이유(2026-07-30): 예전엔 계약에 개수만
+ * 있어서 "확인 못 한 항목 21건"으로만 적었는데, 그러면 사용자가 프로필에서 무엇을 채워야
+ * 할지 알 방법이 없다. 백엔드가 목록을 주기 시작했으니 그대로 보여준다 — 지어내는 게
+ * 아니라 실제로 온 값이다.
  */
 function QualificationBlock({ reco }: { reco: RecommendationItem }) {
   const badge = verdictBadge(reco.verdict, reco.unclear_count, reco.missing_count)
@@ -169,7 +172,9 @@ function QualificationBlock({ reco }: { reco: RecommendationItem }) {
             why={m.reason}
           />
         ))}
-        {reco.unclear_count > 0 && (
+        {reco.unclear.length > 0 && <UnclearBlock items={reco.unclear} />}
+        {/* 목록이 안 오는 구버전 백엔드 대비 — 개수만 있으면 최소한 개수는 보여준다. */}
+        {reco.unclear.length === 0 && reco.unclear_count > 0 && (
           <p className="mt-0.5 text-[11.5px] text-muted-foreground">
             프로필에 언급이 없어 확인 못 한 항목 {reco.unclear_count}건 (참가자격상 문제로 세지는
             않았어요)
@@ -180,16 +185,64 @@ function QualificationBlock({ reco }: { reco: RecommendationItem }) {
   )
 }
 
-function QualRow({ state, text, why }: { state: 'ok' | 'miss'; text: string; why: string }) {
+/**
+ * 확인 못 한 요건 — 기본으로 접어둔다.
+ *
+ * 목록을 보여주는 게 목적이지만 문서당 20건이 넘는 경우도 있어(실측: ERP 공고 21건)
+ * 다 펼쳐두면 정작 충족·미충족 판정이 화면 밖으로 밀린다. 개수를 눌러 펼치게 했다.
+ */
+function UnclearBlock({ items }: { items: { requirement: string; reason: string }[] }) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="mt-0.5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-1.5 text-left text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronDown className={cn('size-3 shrink-0 transition-transform', open && 'rotate-180')} />
+        프로필에 언급이 없어 확인 못 한 항목 {items.length}건 (참가자격상 문제로 세지는 않았어요)
+      </button>
+      {open && (
+        <div className="mt-1.5 flex flex-col gap-1.5 border-l-2 border-border pl-2.5">
+          {items.map((u) => (
+            <QualRow
+              key={`unclear-${u.requirement}`}
+              state="unclear"
+              text={u.requirement}
+              why={u.reason}
+            />
+          ))}
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            해당하는 게 있으면 “내 회사 프로필”에서 체크해 주세요 — 체크하면 다시 판정에 반영돼요.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function QualRow({
+  state,
+  text,
+  why,
+}: {
+  state: 'ok' | 'miss' | 'unclear'
+  text: string
+  why: string
+}) {
   return (
     <div className="flex items-start gap-2 text-[12.5px] leading-normal">
       <span
         className={cn(
           'mt-px grid size-4 shrink-0 place-items-center rounded-full text-[10px] font-bold',
-          state === 'ok' ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger',
+          state === 'ok' && 'bg-success-soft text-success',
+          state === 'miss' && 'bg-danger-soft text-danger',
+          state === 'unclear' && 'bg-warning-soft text-warning',
         )}
       >
-        {state === 'ok' ? '✓' : '✕'}
+        {state === 'ok' ? '✓' : state === 'miss' ? '✕' : '?'}
       </span>
       <span className="flex-1">
         {text} <span className="text-muted-foreground">— {why}</span>

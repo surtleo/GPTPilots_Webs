@@ -228,8 +228,12 @@ export interface RecommendationItem {
   /** 충족 확인된 요건 + 사유 — "왜 적격인지" 근거로 화면에 보여준다. */
   met: UnmetItem[]
   unmet: UnmetItem[]
+  /** 확인 못 한 요건 목록 — 개수만 보여주면 무엇을 채워야 할지 알 수 없어서 목록까지 받는다. */
+  unclear: UnmetItem[]
   /** 프로필에 언급이 없어 확인 못 한 요건 수 — "적격 = 다 확인됨"이 아님을 표시하는 용도. */
   unclear_count: number
+  /** 참가불가 판정의 근거 조항. 추천 목록엔 참가불가가 안 실리므로 보통 비어 있다. */
+  blocking: UnmetItem[]
   missing_count: number | null
   total: number
 }
