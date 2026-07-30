@@ -81,8 +81,6 @@ export function shortRegion(full: string): string {
 
 export interface QualItem {
   label: string
-  /** 이 조건이 등장한 문서 비율(또는 건수) — 실측값. 표시용 문자열 그대로 둔다. */
-  freq: string
   /**
    * 공고 요건 원문에 이 단어가 있으면 이 체크 항목이 그 요건을 답해준다고 본다.
    *
@@ -96,8 +94,6 @@ export interface QualItem {
 export interface QualGroup {
   id: string
   label: string
-  /** 이 유형의 조건이 하나라도 등장한 문서 비율(합집합, 실측). */
-  coverage: string
   items: readonly QualItem[]
   /** 체크박스로 표현할 수 없어 화면에 따로 그리는 입력이 있는 유형. */
   extra?: 'daegi' | 'licenseOther'
@@ -107,17 +103,32 @@ export interface QualGroup {
  * 보유 자격 — 유형별로 나눈다.
  *
  * 유형을 나눈 이유: 항목이 21개면 한 줄로 늘어놓을 수 없고, 사용자가 "우리랑 상관있는
- * 묶음"만 열어보게 하는 편이 훨씬 빠르다. 순서는 등장 빈도 내림차순 — 흔한 것부터 묻는다.
+ * 묶음"만 열어보게 하는 편이 훨씬 빠르다.
+ *
+ * 아래 순서(유형·항목 모두)는 임의가 아니라 **실측 등장 빈도 내림차순**이다 — 흔한 것부터
+ * 묻는다. 98개 문서·1,703개 요건을 훑은 값이고, 화면에는 표시하지 않는다(빈도 %를 뱃지로
+ * 달았더니 입력 화면이 숫자로 어지러워져서 뺐다). 항목을 추가·삭제할 때 순서 근거로 쓸 것:
+ *
+ *   유형별(그 유형 조건이 하나라도 있는 문서 비율)
+ *     기본 참가자격 97% · 컨소시엄·하도급 92% · 사업자 신고·증명서 87%
+ *     기업 규모·납세 79% · 인력·보안 57% · 면허·업종 등록 54%
+ *
+ *   항목별(그 조건이 등장한 문서 비율)
+ *     경쟁입찰 참가자격 96% · 부정당업자 86% · 공동수급 85% · 소프트웨어사업자 84%
+ *     하도급 81% · 대기업집단 72% · 직접생산확인 63% · 중소기업·소상공인 58%
+ *     보안 46% · 허위기재 33% · 결격사유 29% · 청렴 28% · 보증금 18% · 체납 16%
+ *     기술인력 11%
+ *   면허·업종은 개별로는 드물어 문서 "건수"로 셌다(합치면 54%):
+ *     정보통신공사업 7건 · 엔지니어링 4건 · 공간정보·측량 2건 · 기술사 2건
+ *     해외건설·건설업·조달청 물품 각 1건
  */
 export const QUAL_GROUPS: readonly QualGroup[] = [
   {
     id: 'basic',
     label: '기본 참가자격',
-    coverage: '97%',
     items: [
       {
         label: '국가계약법·지방계약법상 경쟁입찰 참가자격 보유',
-        freq: '96%',
         matches: [
           '국가계약법',
           '지방계약법',
@@ -131,17 +142,14 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
       },
       {
         label: '부정당업자 제재 대상 아님',
-        freq: '86%',
         matches: ['부정당업자', '부정당 업자', '부정당업체', '부정당 업체'],
       },
       {
         label: '제출서류에 허위기재 없음(적발 시 실격)',
-        freq: '33%',
         matches: ['허위', '위·변조', '위변조'],
       },
       {
         label: '청렴서약·입찰담합·뇌물제공 이력 없음',
-        freq: '28%',
         matches: ['청렴', '담합', '뇌물', '금품'],
       },
     ],
@@ -149,24 +157,20 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
   {
     id: 'jv',
     label: '컨소시엄·하도급',
-    coverage: '92%',
     items: [
       {
         label: '공동수급(컨소시엄) 형태로 참여 가능',
-        freq: '85%',
         matches: ['공동수급', '공동계약', '공동이행', '분담이행', '지분율'],
       },
-      { label: '하도급을 받을 수 있음', freq: '81%', matches: ['하도급'] },
+      { label: '하도급을 받을 수 있음', matches: ['하도급'] },
     ],
   },
   {
     id: 'cert',
     label: '사업자 신고·증명서',
-    coverage: '87%',
     items: [
       {
         label: '소프트웨어사업자 신고 완료 (컴퓨터관련서비스업 1468)',
-        freq: '84%',
         matches: [
           '소프트웨어사업자',
           'SW사업자',
@@ -176,10 +180,9 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
           '소프트웨어산업 진흥법',
         ],
       },
-      { label: '직접생산확인증명서 보유', freq: '63%', matches: ['직접생산'] },
+      { label: '직접생산확인증명서 보유', matches: ['직접생산'] },
       {
         label: '중소기업·소상공인 확인서 보유',
-        freq: '58%',
         matches: ['중소기업', '소상공인', '소기업'],
       },
     ],
@@ -187,16 +190,13 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
   {
     id: 'scale',
     label: '기업 규모·납세',
-    coverage: '79%',
     items: [
       {
         label: '국세·지방세·4대보험 체납 없음',
-        freq: '16%',
         matches: ['국세', '지방세', '체납', '완납', '4대 사회보험', '사회보험'],
       },
       {
         label: '입찰보증금·이행보증보험 준비 가능',
-        freq: '18%',
         matches: ['입찰보증금', '보증보험', '보증서'],
       },
     ],
@@ -205,21 +205,17 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
   {
     id: 'tech',
     label: '인력·보안',
-    coverage: '57%',
     items: [
       {
         label: '개인정보보호·보안서약 등 보안 규정 대응 가능',
-        freq: '46%',
         matches: ['개인정보', '보안'],
       },
       {
         label: '투입 예정 인력에 결격사유(형사처벌 등) 없음',
-        freq: '29%',
         matches: ['결격사유', '재직', '자사인력', '신원조사', '징역', '금고', '벌금'],
       },
       {
         label: '사업 수행 가능한 기술인력 보유',
-        freq: '11%',
         matches: ['기술인력', '기술자', '기술등급'],
       },
     ],
@@ -227,17 +223,15 @@ export const QUAL_GROUPS: readonly QualGroup[] = [
   {
     id: 'lic',
     label: '면허·업종 등록',
-    coverage: '54%',
     items: [
-      { label: '정보통신공사업 등록', freq: '7건', matches: ['정보통신공사업'] },
-      { label: '엔지니어링사업자 신고', freq: '4건', matches: ['엔지니어링'] },
-      { label: '공간정보업·측량업 등록', freq: '2건', matches: ['공간정보', '측량'] },
-      { label: '기술사사무소 등록', freq: '2건', matches: ['기술사'] },
-      { label: '해외건설업 신고', freq: '1건', matches: ['해외건설'] },
-      { label: '건설업 등록', freq: '1건', matches: ['건설업'] },
+      { label: '정보통신공사업 등록', matches: ['정보통신공사업'] },
+      { label: '엔지니어링사업자 신고', matches: ['엔지니어링'] },
+      { label: '공간정보업·측량업 등록', matches: ['공간정보', '측량'] },
+      { label: '기술사사무소 등록', matches: ['기술사'] },
+      { label: '해외건설업 신고', matches: ['해외건설'] },
+      { label: '건설업 등록', matches: ['건설업'] },
       {
         label: '조달청 물품 등록(컴퓨터서버 등)',
-        freq: '1건',
         matches: ['물품 등록', '세부품명', '물품분류', '컴퓨터서버'],
       },
     ],

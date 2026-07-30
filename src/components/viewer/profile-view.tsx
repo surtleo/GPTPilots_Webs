@@ -189,14 +189,6 @@ export function ProfileView() {
                     </span>
                     <span
                       className={cn(
-                        'font-mono text-[10px] text-muted-foreground',
-                        open && 'text-accent-foreground/75',
-                      )}
-                    >
-                      공고 {g.coverage}
-                    </span>
-                    <span
-                      className={cn(
                         'flex w-full items-center gap-1.5 text-[10.5px] text-muted-foreground',
                         open && 'text-accent-foreground/85',
                       )}
@@ -299,14 +291,6 @@ function GroupPanel({ group, onToggle }: { group: QualGroup; onToggle: (q: strin
                 {on && <Check className="size-3" strokeWidth={3} />}
               </span>
               <span className="min-w-0 flex-1">{item.label}</span>
-              <span
-                className={cn(
-                  'shrink-0 font-mono text-[10px] text-muted-foreground',
-                  on && 'text-accent-foreground/70',
-                )}
-              >
-                {item.freq}
-              </span>
             </button>
           )
         })}
@@ -349,7 +333,6 @@ function DaegiPicker() {
     <div className="mt-2.5 rounded-[9px] border border-border bg-card px-3 py-2.5">
       <p className="mb-2 text-[12.5px] font-semibold">
         대기업집단(상호출자제한기업집단)에 소속되어 있나요?
-        <span className="ml-1.5 font-mono text-[10px] font-normal text-muted-foreground">72%</span>
       </p>
       <div className="flex gap-1.5">
         {OPTS.map((o) => {
