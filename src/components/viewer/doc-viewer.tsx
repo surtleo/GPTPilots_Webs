@@ -32,10 +32,13 @@ export function DocViewer({ docId }: { docId: string }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const flashRef = useRef<HTMLSpanElement>(null)
 
-  // 인용으로 들어오면 원문을 펼친다. nonce를 의존성에 넣어 같은 인용을 다시 눌러도 반응한다.
+  // 인용으로 들어오면 원문을 펼친다. quote가 아니라 인용 자체(citeForThisDoc) 유무로
+  // 판단한다 — 실제로 검색할 발췌문(quote)이 없는 인용(섹션만 아는 경우)이 대부분이라,
+  // quote 유무로 걸면 그런 인용은 원문이 안 펼쳐지는 채로 남는다. nonce를 의존성에 넣어
+  // 같은 인용을 다시 눌러도 반응한다.
   useEffect(() => {
-    if (citeForThisDoc?.quote) setFullOpen(true)
-  }, [citeForThisDoc?.quote, citeForThisDoc?.nonce])
+    if (citeForThisDoc) setFullOpen(true)
+  }, [citeForThisDoc, citeForThisDoc?.nonce])
 
   const badge = reco ? verdictBadge(reco.verdict, reco.unclear_count, reco.missing_count) : null
   const due = deadlineBadge(card?.마감일 ?? null)
