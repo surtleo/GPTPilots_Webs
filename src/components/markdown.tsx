@@ -74,11 +74,13 @@ export function MarkdownMessage({
   /** 주면 본문의 `(출처: …)` 표기를 각주 칩으로 바꿔 단다. */
   citations?: Citation[]
 }) {
-  const { text, refs } = useMemo(
-    () =>
-      citations?.length ? linkifyCitations(content, citations) : { text: content, refs: null },
-    [content, citations],
-  )
+  const { text, refs } = useMemo(() => {
+    // 모델이 표 셀 안 줄바꿈을 `<br>`로 적는데, rehype-raw 없이는 평문 그대로 노출된다
+    // (rehype-raw는 LLM 출력에 XSS 경로를 여니 쓰지 않는다). GFM 셀은 개행이 안 되므로
+    // 가운뎃점 구분자로 바꿔 보여준다. 뒤따르는 불릿 대시는 구분자와 겹쳐 지운다.
+    const flat = content.replace(/\s*<br\s*\/?>\s*(?:-\s*)?/gi, ' · ')
+    return citations?.length ? linkifyCitations(flat, citations) : { text: flat, refs: null }
+  }, [content, citations])
 
   const withCites = useMemo<Components>(
     () =>
