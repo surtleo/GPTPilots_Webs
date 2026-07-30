@@ -20,7 +20,7 @@ import {
 } from '@/lib/chat-cards'
 import { useChatSessions } from '@/lib/chat-sessions-context'
 import { verdictBadge } from '@/lib/format'
-import { QUALIFICATION_OPTIONS, useProfile } from '@/lib/profile-context'
+import { askableFromUnclear, useProfile } from '@/lib/profile-context'
 import { useRecommendationsCache } from '@/lib/recommendations-context'
 import { genKey, useWorkspace } from '@/lib/workspace-context'
 
@@ -56,14 +56,28 @@ const ChatFlowsContext = createContext<ChatFlowsValue | null>(null)
 
 const NO_MATCH = '해당 없음'
 
-/** 판정별 건수 — "참가 가능"처럼 뭉뚱그리지 않고 백엔드 verdict 그대로 센다. */
+/**
+ * 판정별 건수 — "참가 가능"처럼 뭉뚱그리지 않고 백엔드 verdict 그대로 센다.
+ *
+ * 참가불가를 따로 세는 이유: 목록에 함께 실리는데 건수를 안 알려주면 "추천이 왜 이것뿐이지"가
+ * 된다(실사용 피드백). 실측 — 대기업 계열사 프로필에서 후보 8건 중 5건이 참가불가였다.
+ */
 function verdictBreakdown(items: { verdict: string }[]): string {
-  const ok = items.filter((r) => r.verdict === '적격').length
-  const check = items.length - ok
   if (items.length === 0) return '0건'
-  if (check === 0) return `적격 ${ok}건`
-  if (ok === 0) return `확인필요 ${check}건`
-  return `적격 ${ok}건 · 확인필요 ${check}건`
+  const counts: [string, number][] = [
+    ['적격', items.filter((r) => r.verdict === '적격').length],
+    ['확인필요', items.filter((r) => r.verdict === '확인필요').length],
+    ['참가불가', items.filter((r) => r.verdict === '참가불가').length],
+  ]
+  return counts
+    .filter(([, n]) => n > 0)
+    .map(([label, n]) => `${label} ${n}건`)
+    .join(' · ')
+}
+
+/** 지원할 수 있는 것만 — 참가불가는 목록에 보이되 "담아뒀다"고 셀 수는 없다. */
+function eligibleCount(items: { verdict: string }[]): number {
+  return items.filter((r) => r.verdict !== '참가불가').length
 }
 
 /** 추천 진행 단계 — 백엔드 스트림 이벤트를 그대로 단계 리스트로 옮긴다. */
@@ -142,14 +156,29 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     // "참가 가능"이라고 뭉뚱그리지 않는다: 백엔드는 적격과 확인필요를 함께 돌려주는데,
     // 확인필요는 미충족 요건이 1건 이상 있다는 판정이다(src/eligibility.py `_build_verdict`).
     // 이걸 전부 "참가 가능"으로 재서술하면 프론트가 판정을 바꿔 말하는 셈이 된다.
+    const blocked = items.length - eligibleCount(items)
+    // 참가불가가 나온 원인이 사용자 본인의 답변일 때는 그걸 짚어준다(2026-07-30 실사용 문제).
+    // 대기업집단 "예"는 공고 72%에서 참가 불가로 이어지는데, 그 답변이 접힌 유형 안에 있어
+    // 사용자가 자기가 뭘 골랐는지 모른 채 "참가불가가 왜 이렇게 많지"만 겪었다.
+    const daegiHint =
+      profile.daegi === 'yes'
+        ? ' 대기업집단에 “예”로 답하셨기 때문이에요 — 아니라면 프로필에서 고치고 다시 찾아주세요.'
+        : ''
     pushLocal(
       'assistant',
-      items.length > 0
-        ? `참가자격을 대조해 ${verdictBreakdown(items)}을 왼쪽 맞춤 공고에 담아뒀어요. 확인필요는 미충족 요건이 남아 있다는 뜻이라 뱃지를 꼭 봐주세요. 체크하시면 그 공고를 근거로 답하고, 준비 점검·비교표·핵심 정리도 만들 수 있어요.`
-        : '자격이 걸리지 않는 공고를 찾지 못했어요. 회사 소개를 더 구체적으로 적거나 보유 자격을 체크하시면 결과가 달라질 수 있어요.',
+      items.length === 0
+        ? '자격이 걸리지 않는 공고를 찾지 못했어요. 회사 소개를 더 구체적으로 적거나 보유 자격을 체크하시면 결과가 달라질 수 있어요.'
+        : eligibleCount(items) === 0
+          ? // 전부 참가불가인 경우 — "담아뒀어요"라고 하면 지원할 수 있는 것처럼 읽힌다
+            `대조해봤더니 찾은 ${items.length}건 전부 참여가 막혀 있어요(${verdictBreakdown(items)}). 왼쪽 목록에서 빨간 뱃지를 눌러 어떤 조항 때문인지 보실 수 있어요.${daegiHint || ' 프로필의 기업 규모 답변을 바꾸면 결과가 달라질 수 있어요.'}`
+          : `참가자격을 대조해 ${verdictBreakdown(items)}을 왼쪽 맞춤 공고에 담아뒀어요.` +
+            (blocked > 0
+              ? ` 참가불가 ${blocked}건은 법적으로 참여가 막힌 공고라 목록 맨 아래에 빨간 뱃지로 뒀어요 — 눌러보시면 어떤 조항 때문인지 나와요.${daegiHint}`
+              : '') +
+            ` 확인필요는 미충족 요건이 남아 있다는 뜻이라 뱃지를 꼭 봐주세요. 체크하시면 그 공고를 근거로 답하고, 준비 점검·비교표·핵심 정리도 만들 수 있어요.`,
       { sessionId },
     )
-  }, [recoLoading, recoError, progress, items, patchCard, pushLocal])
+  }, [recoLoading, recoError, progress, items, patchCard, pushLocal, profile.daegi])
 
   const runReco = useCallback(
     (text = '맞춤 공고 찾아줘') => {
@@ -295,12 +324,10 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
           why: m.reason,
         })),
       ]
-      if (result.unclear_count > 0) {
-        reportItems.push({
-          state: 'unclear',
-          text: `프로필에 언급이 없어 확인 못 한 요건 ${result.unclear_count}건`,
-          why: '보유하고 계시면 프로필에서 체크해 주세요 — 체크하면 다시 판정해 드려요',
-        })
+      // 불명 요건은 개수만 적지 않고 조항을 그대로 보여준다 — 백엔드가 목록을 주기
+      // 시작해서(2026-07-30) 가능해졌다. "7건"만 보면 사용자가 뭘 채워야 할지 알 수 없다.
+      for (const u of result.unclear) {
+        reportItems.push({ state: 'unclear', text: u.requirement, why: u.reason })
       }
       const counts = {
         total: result.total,
@@ -335,9 +362,19 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     [],
   )
 
-  /** 아직 체크 안 한 자격 — 확인 질문의 선택지가 된다. */
-  const uncheckedQualifications = useMemo(
-    () => QUALIFICATION_OPTIONS.filter((q) => !profile.qualifications.includes(q)),
+  /**
+   * 판정 결과 → 되물을 항목.
+   *
+   * 예전엔 "체크 안 한 항목 전부"를 물어봤는데, 그러면 그 공고와 아무 상관 없는 걸 묻는다
+   * (관제 시스템 공고인데 해외건설업 신고 여부를 묻는 식). 이제 백엔드가 그 문서의 불명
+   * 요건 목록을 주므로, 거기에 실제로 걸리는 항목만 골라 묻는다.
+   */
+  const askablesFor = useCallback(
+    (result: EligibilityResult) =>
+      askableFromUnclear(
+        result.unclear.map((u) => u.requirement),
+        profile.qualifications,
+      ),
     [profile.qualifications],
   )
 
@@ -384,19 +421,37 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       const title = target.사업명 ?? target.doc_id
       setBusy('공고 요건을 뽑아 프로필과 대조하는 중…')
       try {
-        await judge(target.doc_id, title, matchText, sessionId)
-        // 확인 못 한 자격이 남아 있으면 되묻는다. 프로토타입의 확인 질문과 같은 자리인데,
-        // 물어보는 항목이 지어낸 게 아니라 프로필에서 실제로 체크가 빠진 것들이다.
-        if (uncheckedQualifications.length > 0) {
+        const result = await judge(target.doc_id, title, matchText, sessionId)
+        // 참가불가면 자격을 더 체크해도 결과가 안 바뀐다 — 되묻지 않고 이유를 말한다.
+        if (result.verdict === '참가불가') {
+          const reasons = result.blocking.map((b) => `· ${b.requirement}`).join('\n')
+          pushLocal(
+            'assistant',
+            `이 공고는 아래 조항 때문에 참여가 막혀 있어요. 다른 자격을 채워도 바뀌지 않는 부분이에요.\n${reasons}`,
+            { sessionId },
+          )
+          return
+        }
+        // 이 공고에서 실제로 확인 못 한 요건에 걸리는 항목만 되묻는다.
+        const { labels, unanswerableCount } = askablesFor(result)
+        if (labels.length > 0) {
           pushLocal('assistant', '', {
             card: {
               kind: 'ask',
               question:
-                '프로필에 체크가 빠진 자격이 있어요. 실제로 보유하고 계신 게 있으면 골라주세요 — 프로필에 반영해서 다시 판정해 드릴게요.',
-              options: [...uncheckedQualifications, NO_MATCH],
+                '이 공고에서 확인이 안 된 요건 중, 프로필 체크로 답할 수 있는 게 있어요. 실제로 보유하고 계신 걸 골라주세요 — 반영해서 다시 판정해 드릴게요.',
+              options: [...labels, NO_MATCH],
             },
             sessionId,
           })
+        } else if (unanswerableCount > 0) {
+          // 물어볼 게 없는 것도 정상적인 결과다. 다만 왜 없는지는 말해줘야 한다 —
+          // "확인 못 한 요건 N건"만 남겨두면 사용자가 뭘 해야 하는지 알 수 없다.
+          pushLocal(
+            'assistant',
+            `확인 못 한 요건 ${unanswerableCount}건은 프로필 체크로는 답할 수 없는 항목이에요(증명서 유효기간·제출 시점 같은 세부 조건). 공고 원문에서 직접 확인하셔야 해요.`,
+            { sessionId },
+          )
         }
       } catch (err) {
         pushLocal(
@@ -408,7 +463,7 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
         setBusy(null)
       }
     },
-    [docs, matchText, judge, uncheckedQualifications, pushLocal, peekCurrentId],
+    [docs, matchText, judge, askablesFor, pushLocal, peekCurrentId],
   )
 
   const answerAsk = useCallback(

@@ -170,7 +170,15 @@ function RecoTab({ onBrowseAll }: { onBrowseAll: () => void }) {
         />
       </div>
       <p className="mx-4 mb-2 text-[11px] text-muted-foreground">
-        참가자격 대조 완료 {items.length}건 · 체크하면 대화에 첨부돼요
+        {(() => {
+          // 참가불가 건수를 따로 알려준다 — 목록에 섞여 있는데 개수를 안 밝히면
+          // "지원 가능한 공고가 이만큼"으로 잘못 읽힌다(실사용 피드백).
+          const blocked = items.filter((r) => r.verdict === '참가불가').length
+          const usable = items.length - blocked
+          return blocked > 0
+            ? `지원 가능 ${usable}건 · 참가불가 ${blocked}건(맨 아래) · 체크하면 대화에 첨부돼요`
+            : `참가자격 대조 완료 ${items.length}건 · 체크하면 대화에 첨부돼요`
+        })()}
       </p>
 
       <div className="no-scrollbar min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
@@ -240,11 +248,16 @@ function RecoRow({
   const badge = verdictBadge(item.verdict, item.unclear_count, item.missing_count)
   const due = deadlineBadge(item.마감일)
 
+  // 참가불가는 목록에 남기되(감추면 "추천이 왜 이것뿐이지"가 된다) 지원 가능한 공고와
+  // 섞여 보이지 않게 한 단계 죽여서 표시한다 — 뱃지는 그대로 선명하게 둔다.
+  const blocked = item.verdict === '참가불가'
+
   return (
     <div
       className={cn(
         'relative flex items-start gap-2.5 rounded-[10px] border px-2.5 py-2.5',
         selected ? 'border-primary bg-accent' : 'border-border bg-card',
+        blocked && !selected && 'border-dashed bg-transparent',
         disabled && 'opacity-50',
       )}
     >
@@ -280,7 +293,12 @@ function RecoRow({
         title={item.doc_id}
         className="min-w-0 flex-1 text-left"
       >
-        <span className="line-clamp-2 text-[12.5px] leading-snug font-semibold">
+        <span
+          className={cn(
+            'line-clamp-2 text-[12.5px] leading-snug font-semibold',
+            blocked && 'text-muted-foreground',
+          )}
+        >
           {item.사업명 ?? item.doc_id}
         </span>
         <span className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">

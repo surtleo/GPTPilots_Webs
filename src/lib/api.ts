@@ -231,8 +231,12 @@ export interface RecommendationItem {
   /** 충족 확인된 요건 + 사유 — "왜 적격인지" 근거로 화면에 보여준다. */
   met: UnmetItem[]
   unmet: UnmetItem[]
+  /** 확인 못 한 요건 목록 — 개수만 보여주면 무엇을 채워야 할지 알 수 없어서 목록까지 받는다. */
+  unclear: UnmetItem[]
   /** 프로필에 언급이 없어 확인 못 한 요건 수 — "적격 = 다 확인됨"이 아님을 표시하는 용도. */
   unclear_count: number
+  /** 참가불가 판정의 근거 조항. 추천 목록엔 참가불가가 안 실리므로 보통 비어 있다. */
+  blocking: UnmetItem[]
   missing_count: number | null
   total: number
 }
@@ -245,10 +249,18 @@ export interface RecommendationItem {
  * "입찰 준비 점검"이 추천 여부와 무관하게 동작한다.
  */
 export interface EligibilityResult {
+  /** "적격"|"확인필요"|"미달"|"참가불가"|"확인불가".
+   *  "참가불가"는 미충족 개수와 무관하게 그 자체로 참여가 막히는 요건(대기업집단 제한·
+   *  부정당업자 제재)이 미충족일 때 온다 — 근거는 blocking에 실린다. */
   verdict: string
   met: UnmetItem[]
   unmet: UnmetItem[]
+  /** 프로필에 언급이 없어 확인 못 한 요건 목록. 되묻는 질문을 이 문서에서 실제로
+   *  불명확했던 항목으로 만들기 위해 필요하다(예전엔 개수만 와서 알 수 없었다). */
+  unclear: UnmetItem[]
   unclear_count: number
+  /** 참가불가 판정의 근거 조항. 비어 있으면 즉시 탈락 사유가 없다는 뜻. */
+  blocking: UnmetItem[]
   missing_count: number | null
   total: number
 }
@@ -272,7 +284,9 @@ export async function fetchEligibility(
     verdict: typeof data.verdict === 'string' ? data.verdict : '확인불가',
     met: Array.isArray(data.met) ? data.met : [],
     unmet: Array.isArray(data.unmet) ? data.unmet : [],
+    unclear: Array.isArray(data.unclear) ? data.unclear : [],
     unclear_count: typeof data.unclear_count === 'number' ? data.unclear_count : 0,
+    blocking: Array.isArray(data.blocking) ? data.blocking : [],
     missing_count: typeof data.missing_count === 'number' ? data.missing_count : null,
     total: typeof data.total === 'number' ? data.total : 0,
   }

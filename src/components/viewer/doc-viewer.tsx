@@ -165,27 +165,35 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
 /**
  * 참가자격 판정 — 추천에서 온 문서일 때만 보여준다.
  *
- * 충족(met)·미충족(unmet)은 백엔드가 요건 원문과 사유를 함께 주므로 그대로 쓰고,
- * 확인 못 한 요건은 개수만 온다(unclear_count) — 어떤 요건인지는 계약에 없어서
- * 개수만 적는다. 여기서 임의로 "아마 이것들일 것"이라고 지어내면 안 된다.
+ * 충족(met)·미충족(unmet)·불명(unclear) 전부 백엔드가 요건 원문과 사유를 함께 준다.
+ *
+ * 불명도 목록으로 싣는 이유(2026-07-30): 예전엔 계약에 개수만 있어서 "확인 못 한 요건 21건"
+ * 한 줄로 뭉갰는데, 그러면 사용자가 프로필에서 무엇을 채워야 할지 알 방법이 없다. 백엔드가
+ * 목록을 주기 시작했으니 그대로 싣는다 — 지어내는 게 아니라 실제로 온 값이다.
  */
 function QualificationBlock({ reco }: { reco: RecommendationItem }) {
   const badge = verdictBadge(reco.verdict, reco.unclear_count, reco.missing_count)
 
-  // 요건·사유는 백엔드 판정을 그대로 표에 싣는다. 미확인은 개수만 오는 계약이라
-  // "확인 못 한 요건 N건" 행 하나로 만든다 — 어떤 요건인지 지어내면 안 된다.
+  // 요건·사유는 백엔드 판정을 그대로 표에 싣는다. 불명도 목록이 오므로 조항을 그대로 넣는다.
+  // 목록이 없는 구버전 백엔드에 붙었을 때만 개수 한 줄로 폴백한다.
   const rows: ReportItem[] = [
     ...reco.met.map<ReportItem>((m) => ({ state: 'ok', text: m.requirement, why: m.reason })),
     ...reco.unmet.map<ReportItem>((m) => ({ state: 'miss', text: m.requirement, why: m.reason })),
-    ...(reco.unclear_count > 0
-      ? [
-          {
-            state: 'unclear' as const,
-            text: `프로필에 언급이 없어 확인 못 한 요건 ${reco.unclear_count}건`,
-            why: '참가자격상 문제로 세지는 않았어요',
-          },
-        ]
-      : []),
+    ...(reco.unclear.length > 0
+      ? reco.unclear.map<ReportItem>((u) => ({
+          state: 'unclear',
+          text: u.requirement,
+          why: u.reason,
+        }))
+      : reco.unclear_count > 0
+        ? [
+            {
+              state: 'unclear' as const,
+              text: `프로필에 언급이 없어 확인 못 한 요건 ${reco.unclear_count}건`,
+              why: '참가자격상 문제로 세지는 않았어요',
+            },
+          ]
+        : []),
   ]
 
   return (

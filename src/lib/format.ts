@@ -58,7 +58,13 @@ export function deadlineBadge(iso: string | null, now: Date = new Date()): Deadl
  * 있는데 초록으로만 보여주면 다 확인된 것처럼 읽힌다 — 실제로 met=0인 적격 카드가
  * 대다수였다(2026-07-27 실측). 그래서 미확인이 남으면 톤을 한 단계 낮춘다.
  */
-export type VerdictTone = 'ok' | 'mid' | 'warn'
+/**
+ * 톤 이름과 색의 대응(VERDICT_TONE_CLASS 참고): ok=초록, mid=노랑, warn=빨강(연한 배경),
+ * block=빨강(꽉 찬 배경). block을 따로 둔 이유: "확인필요"가 이미 warn(연한 빨강)이라
+ * "참가불가"를 warn으로 두면 색이 같아져 구분이 안 된다. 참가불가는 개수 문제가 아니라
+ * 법적으로 참여가 막힌 상태라, 한눈에 다르게 보여야 한다.
+ */
+export type VerdictTone = 'ok' | 'mid' | 'warn' | 'block'
 
 export interface VerdictBadge {
   label: string
@@ -79,6 +85,13 @@ export function verdictBadge(
     return missingCount != null && missingCount > 0
       ? { label: `확인필요 · ${missingCount}건 부족`, tone: 'warn' }
       : { label: '확인필요', tone: 'warn' }
+  }
+  // "참가불가"는 미충족 개수와 무관하게 그 자체로 참여가 막히는 요건(대기업집단 제한,
+  // 부정당업자 제재)이 미충족일 때 백엔드가 내려준다. 여기서 명시적으로 다루지 않으면
+  // 아래 폴백이 'mid'(노란색)로 칠해버리는데, 그러면 "확인필요"와 구분이 안 돼서
+  // 이 판정을 새로 만든 의미가 없어진다 — 개수를 늘려 말하지 않고 danger로 못 박는다.
+  if (verdict === '참가불가') {
+    return { label: '참가불가', tone: 'block' }
   }
   return { label: verdict, tone: 'mid' }
 }
@@ -102,4 +115,7 @@ export const VERDICT_TONE_CLASS: Record<VerdictTone, string> = {
   ok: 'text-success bg-success-soft',
   mid: 'text-warning bg-warning-soft',
   warn: 'text-danger bg-danger-soft',
+  // 꽉 찬 빨강 — 연한 배경인 warn과 확실히 구분되고, 글자 대비도 훨씬 높다
+  // (라운드 5 실측: soft 배경 뱃지는 라이트모드 대비가 2.8:1로 기준 미달이었다).
+  block: 'text-danger-foreground bg-danger font-bold',
 }
