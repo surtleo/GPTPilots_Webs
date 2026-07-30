@@ -235,6 +235,10 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     async (text = '핵심 정리해줘') => {
       const target = docs[0]
       if (!target) return
+      // send() 자체는 시작 시점 세션에 알아서 답을 남기지만(내부에서 자체 캡처),
+      // 그 뒤에 따로 붙이는 "파일로도 저장했어요" 안내는 별개 쓰기라 세션을 직접 못 박아야
+      // /ask 응답이 오는 사이 다른 대화로 넘어가도 엉뚱한 곳에 끼어들지 않는다.
+      const sessionId = peekCurrentId() ?? undefined
       setBusy('원문을 읽고 핵심을 정리하는 중…')
       try {
         // 정리 내용도 문서 근거에서 나와야 하므로 /ask를 그대로 태운다.
@@ -253,13 +257,16 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
           meta: `${target.사업명 ?? target.doc_id} · 원문 기준`,
           body: res.answer,
         })
-        pushLocal('assistant', '정리한 내용을 파일로도 저장했어요.', { meta: { fileIds: [id] } })
+        pushLocal('assistant', '정리한 내용을 파일로도 저장했어요.', {
+          meta: { fileIds: [id] },
+          sessionId,
+        })
         open(genKey(id))
       } finally {
         setBusy(null)
       }
     },
-    [docs, send, addFile, pushLocal, open],
+    [docs, send, addFile, pushLocal, open, peekCurrentId],
   )
 
   /** 판정 결과 → 리포트 카드 + 저장할 본문. */
@@ -319,11 +326,14 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     [profile.qualifications],
   )
 
+  // fetchEligibility가 도는 몇 초 사이 사용자가 다른 대화로 넘어갈 수 있다 — sessionId를
+  // 받아 판정 결과가 항상 그 흐름을 시작한 세션에 남도록 한다(추천 대조와 같은 원리,
+  // QA 라운드 4에서 마저 적용).
   const judge = useCallback(
-    async (docId: string, title: string, profileText: string) => {
+    async (docId: string, title: string, profileText: string, sessionId?: string) => {
       const result = await fetchEligibility(docId, profileText)
       const { card, body } = buildReport(title, result)
-      pushLocal('assistant', '', { card })
+      pushLocal('assistant', '', { card, sessionId })
       const id = `ready-${docId}`
       addFile({
         id,
@@ -333,7 +343,10 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
         meta: `${title} · 회사 프로필 기준`,
         body,
       })
-      pushLocal('assistant', '점검 결과를 파일로도 저장했어요.', { meta: { fileIds: [id] } })
+      pushLocal('assistant', '점검 결과를 파일로도 저장했어요.', {
+        meta: { fileIds: [id] },
+        sessionId,
+      })
       return result
     },
     [buildReport, pushLocal, addFile],
@@ -344,17 +357,19 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       const target = docs[0]
       if (!target) return
       pushLocal('user', text)
+      const sessionId = peekCurrentId() ?? undefined
       if (!combinedText.trim()) {
         pushLocal(
           'assistant',
           '판정하려면 회사 프로필이 필요해요. 왼쪽 아래 “내 회사 프로필”을 먼저 채워주세요.',
+          { sessionId },
         )
         return
       }
       const title = target.사업명 ?? target.doc_id
       setBusy('공고 요건을 뽑아 프로필과 대조하는 중…')
       try {
-        await judge(target.doc_id, title, combinedText)
+        await judge(target.doc_id, title, combinedText, sessionId)
         // 확인 못 한 자격이 남아 있으면 되묻는다. 프로토타입의 확인 질문과 같은 자리인데,
         // 물어보는 항목이 지어낸 게 아니라 프로필에서 실제로 체크가 빠진 것들이다.
         if (uncheckedQualifications.length > 0) {
@@ -365,28 +380,34 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
                 '프로필에 체크가 빠진 자격이 있어요. 실제로 보유하고 계신 게 있으면 골라주세요 — 프로필에 반영해서 다시 판정해 드릴게요.',
               options: [...uncheckedQualifications, NO_MATCH],
             },
+            sessionId,
           })
         }
       } catch (err) {
         pushLocal(
           'assistant',
           err instanceof ApiError ? err.message : '참가자격을 판정하지 못했습니다.',
+          { sessionId },
         )
       } finally {
         setBusy(null)
       }
     },
-    [docs, combinedText, judge, uncheckedQualifications, pushLocal],
+    [docs, combinedText, judge, uncheckedQualifications, pushLocal, peekCurrentId],
   )
 
   const answerAsk = useCallback(
     async (messageId: string, option: string) => {
-      patchCard(messageId, { answered: option })
-      pushLocal('user', option)
+      // 이 확인 질문 카드를 누른 시점의 세션 — judge()가 다시 판정한 결과도 이 세션에 남아야
+      // 한다(누른 뒤 답이 오는 몇 초 사이 다른 대화로 넘어갈 수 있음).
+      const sessionId = peekCurrentId() ?? undefined
+      patchCard(messageId, { answered: option }, sessionId)
+      pushLocal('user', option, { sessionId })
       if (option === NO_MATCH) {
         pushLocal(
           'assistant',
           '알겠습니다. 확인 못 한 요건은 그대로 “미확인”으로 남겨둘게요 — 없는 걸로 처리하지 않았어요.',
+          { sessionId },
         )
         return
       }
@@ -399,14 +420,29 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
       const profileText = [combinedText, `- ${option}`].join('\n')
       setBusy('바뀐 프로필로 다시 판정하는 중…')
       try {
-        await judge(target.doc_id, target.사업명 ?? target.doc_id, profileText)
+        await judge(target.doc_id, target.사업명 ?? target.doc_id, profileText, sessionId)
       } catch (err) {
-        pushLocal('assistant', err instanceof ApiError ? err.message : '다시 판정하지 못했습니다.')
+        pushLocal(
+          'assistant',
+          err instanceof ApiError ? err.message : '다시 판정하지 못했습니다.',
+          {
+            sessionId,
+          },
+        )
       } finally {
         setBusy(null)
       }
     },
-    [patchCard, pushLocal, docs, profile.qualifications, setProfile, combinedText, judge],
+    [
+      patchCard,
+      pushLocal,
+      docs,
+      profile.qualifications,
+      setProfile,
+      combinedText,
+      judge,
+      peekCurrentId,
+    ],
   )
 
   const pickCandidate = useCallback(
