@@ -78,6 +78,31 @@ function titleTableHeading(line: string): string | null {
   return num ? `## ${num}. ${title}` : `## ${title}`
 }
 
+/**
+ * 목차 전문이 한 덩어리로 이어진 텍스트를 항목 단위 줄로 가른다. 못 가르면 null.
+ *
+ * 일부 hwp는 목차 전체를 한 셀짜리 장식 표에 통째로 넣는다 — 그대로 두면 목차가
+ * 통짜 문단으로 렌더돼 읽을 수도, 항목 클릭도 할 수 없다. "…제목 <페이지숫자> <다음
+ * 번호매김>…" 경계와 "[서식 N호]"·"[붙임 N]"·"※" 앞에서만 줄을 가른다 — 내용 추가·삭제
+ * 없이 줄바꿈만 넣는 변환이라 무손실이고, 경계 3곳 이상 잡힐 때만 목차로 본다(본문
+ * 문장이 우연히 이 꼴을 반복할 가능성 차단).
+ */
+function splitTocRunOn(text: string): string[] | null {
+  const NEXT_ENTRY =
+    /(?:[ⅰ-ⅻⅠ-Ⅻ]+\s*[.．]|[IVXLC]+\s*[.．]|\d+\s*[.．]|[가-힣]\s*[.．]|\[\s*(?:서식|붙임)|※)/
+  const pageBoundary = new RegExp(String.raw`(\d+)\s+(?=${NEXT_ENTRY.source})`, 'g')
+  const boundaries = text.match(pageBoundary)?.length ?? 0
+  if (boundaries < 3) return null
+  const split = text
+    .replace(pageBoundary, '$1\n')
+    // 페이지번호 없이 나열되는 서식·붙임 목록도 각자 줄로.
+    .replace(/\s+(?=\[\s*(?:서식|붙임))/g, '\n')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
+  return split.length >= 3 ? split : null
+}
+
 /** hwp 추출 마크다운에서 변환 잡음을 걷어낸 마크다운을 돌려준다. */
 export function cleanRfpMarkdown(markdown: string): string {
   const lines = markdown.replace(PAGE_REF_GARBAGE_RE, '').split('\n')
@@ -104,7 +129,11 @@ export function cleanRfpMarkdown(markdown: string): string {
         let j = i + 2
         while (j < lines.length && isEmptyRow(lines[j])) j++
         if (j >= lines.length || !isTableRow(lines[j])) {
-          out.push(`**${filled[0]}**`)
+          // 셀 내용이 통짜 목차면 굵은 문단 대신 항목 단위 줄로 편다 — 그래야
+          // findTocTargets가 항목별로 본문 제목과 매칭해 클릭 이동을 붙일 수 있다.
+          const tocLines = splitTocRunOn(filled[0])
+          if (tocLines) out.push(...tocLines)
+          else out.push(`**${filled[0]}**`)
           i++
           continue
         }
