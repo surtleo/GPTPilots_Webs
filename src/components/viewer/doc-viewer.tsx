@@ -441,19 +441,29 @@ function RfpBlockView({
     case 'bold':
       return <p className="my-2 font-bold">{block.text}</p>
     case 'table': {
-      // 짧은 행(hwp 병합 셀 손실)은 마지막 셀을 colspan으로 늘여 원본 병합처럼 그린다.
-      // 빈 셀 패딩으로 채우면 표 전체에 이름 없는 빈 열이 생겨 원문과 다르게 보인다.
+      // 짧은 행(hwp 병합 셀 손실) 처리는 표의 생김새에 따라 가른다:
+      //  - 격자형(월별 추진일정 등 — 최대 열 수를 꽉 채운 행이 절반 이상): 빈 셀을
+      //    패딩해 균일한 격자로. 여기에 colspan을 쓰면 행마다 통짜/격자가 섞여
+      //    "깨진 표"로 보인다(실사용 불만).
+      //  - 양식형(요구사항 명세 등 — 대부분의 행이 짧다): 마지막 셀 colspan으로
+      //    원본 병합 셀처럼. 여기에 패딩을 쓰면 표 전체에 이름 없는 빈 열이 생긴다.
+      const fullRows = block.rows.filter((r) => r.length === block.maxCols).length
+      const gridLike = block.rows.length > 0 && fullRows * 2 >= block.rows.length
       const span = (row: string[], i: number) =>
-        i === row.length - 1 && row.length < block.maxCols
+        !gridLike && i === row.length - 1 && row.length < block.maxCols
           ? block.maxCols - row.length + 1
           : undefined
+      const pad = (row: string[]) =>
+        gridLike && row.length < block.maxCols
+          ? Array<string>(block.maxCols - row.length).fill('')
+          : []
       return (
         <div className="my-3 overflow-x-auto">
           <table className="w-full border-collapse text-[12.5px]">
             {block.header && (
               <thead>
                 <tr>
-                  {block.header.map((cell, i) => (
+                  {[...block.header, ...pad(block.header)].map((cell, i) => (
                     <th
                       key={i}
                       colSpan={span(block.header!, i)}
@@ -468,7 +478,7 @@ function RfpBlockView({
             <tbody>
               {block.rows.map((row, ri) => (
                 <tr key={ri}>
-                  {row.map((cell, ci) => (
+                  {[...row, ...pad(row)].map((cell, ci) => (
                     <td key={ci} colSpan={span(row, ci)} className={cellClass}>
                       {cell}
                     </td>
