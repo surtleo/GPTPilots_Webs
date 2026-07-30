@@ -1,8 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import Markdown from 'react-markdown'
-import type { Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { ChevronDown, FileText, X } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronUp, FileText, X } from 'lucide-react'
 
 import { ApiError, fetchRfpContent, type RecommendationItem } from '@/lib/api'
 import { QualificationTable } from '@/components/qualification-table'
@@ -10,11 +7,13 @@ import type { ReportItem } from '@/lib/chat-cards'
 import { useRfp } from '@/hooks/use-rfps'
 import {
   cleanRfpMarkdown,
-  findSectionLine,
+  findSectionAnchor,
+  findTocTargets,
   normalizeAnchorText,
+  parseRfpBlocks,
   squash,
+  type RfpBlock,
 } from '@/lib/clean-rfp-markdown'
-import { markdownComponents } from '@/components/markdown'
 import {
   deadlineBadge,
   formatAmount,
@@ -107,7 +106,18 @@ export function DocViewer({ docId }: { docId: string }) {
           <div className="border-t border-border px-6.5 pt-3.5 pb-5.5">
             {fullOpen ? (
               <>
-                <p className="mb-2.5 text-[11.5px] font-bold text-muted-foreground">원문</p>
+                {/* 접기 버튼을 위·아래 양쪽에 둔다 — 수만 자 원문을 읽다 접으려고
+                    맨 아래까지 내려가야 하는 불편을 없앤다. */}
+                <div className="mb-2.5 flex items-center justify-between">
+                  <p className="text-[11.5px] font-bold text-muted-foreground">원문</p>
+                  <button
+                    onClick={() => setFullOpen(false)}
+                    className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <ChevronUp className="size-3.5" />
+                    원문 접기
+                  </button>
+                </div>
                 <FullText
                   docId={docId}
                   quote={citeForThisDoc?.quote ?? null}
@@ -200,15 +210,24 @@ function QualificationBlock({ reco }: { reco: RecommendationItem }) {
 }
 
 /**
- * 원문 뷰어 전용 마크다운 컴포넌트 — 채팅 렌더러(markdownComponents)를 그대로 쓰되
- * 문단만 whitespace-pre-line으로 바꾼다. hwp 추출본은 "□ 항목" 처럼 줄 하나하나가
- * 독립된 항목이라, 소프트 줄바꿈을 공백으로 접으면 문단이 한 덩어리로 뭉개진다.
+ * 앵커 요소에 형광펜 플래시를 달고 다음 프레임에 스크롤한다(하이라이트가 그려진
+ * 뒤에야 위치가 잡힌다). 인용 점프와 목차 클릭이 같은 동작을 공유한다.
+ * 반환한 cancel 함수는 effect cleanup용 — 클릭 핸들러에선 무시해도 된다.
  */
-const viewerComponents: Components = {
-  ...markdownComponents,
-  p: ({ node: _node, ...props }) => (
-    <p className="my-2 leading-relaxed whitespace-pre-line" {...props} />
-  ),
+function flashAndScroll(el: HTMLElement, body: HTMLElement, box: HTMLElement): () => void {
+  // 재클릭 시 애니메이션이 다시 돌게: 이전 플래시를 지우고 리플로를 강제한 뒤 다시 단다.
+  for (const prev of body.querySelectorAll('.cite-flash')) prev.classList.remove('cite-flash')
+  void el.offsetWidth
+  el.classList.add('cite-flash')
+  const id = requestAnimationFrame(() => {
+    const top =
+      el.getBoundingClientRect().top -
+      box.getBoundingClientRect().top +
+      box.scrollTop -
+      box.clientHeight * 0.35
+    box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+  })
+  return () => cancelAnimationFrame(id)
 }
 
 /**
@@ -275,13 +294,15 @@ function findAnchorElement(
 }
 
 /**
- * 원문 전문 + 인용 하이라이트.
+ * 원문 전문 + 인용 하이라이트 + 목차 점프.
  *
- * 예전엔 "원문 대조" 목적으로 <pre>에 날것 그대로 냈지만, hwp 추출 잡음(깨진 페이지참조
- * 문자·빈 표 행·장식 제목표) 때문에 오히려 원문을 읽을 수가 없었다. 그래서 정돈 렌더링으로
- * 바꿨다(사용자 결정, docs/superpowers/specs/2026-07-30-ux-round2-design.md §2) —
- * cleanRfpMarkdown으로 잡음을 걷어낸 뒤 GFM 마크다운으로 렌더해 표가 진짜 표로 보인다.
- * 인용 하이라이트도 텍스트 분할 대신 렌더된 DOM에서 앵커 요소를 찾아 밝히는 방식으로 바꿨다.
+ * 렌더는 마크다운 엔진에 맡기지 않는다. 한 번 GFM으로 렌더해 봤더니 실사용에서
+ * ① 파이프 표가 헤더 열 수를 초과하는 셀을 버려 비정형 hwp 표의 내용이 유실·오정렬됐고
+ * ② 문단·리스트 파싱이 원문 줄바꿈·번호를 재조판해 원문과 다르게 보였다.
+ * 그래서 cleanRfpMarkdown(잡음 제거) → parseRfpBlocks(표·헤딩·본문 블록 분리) 뒤,
+ * 표 블록만 자체 <table>로(모든 행의 모든 셀 보존 — 행마다 열 수가 달라도 그대로),
+ * 나머지 본문은 원문 줄바꿈 그대로 pre-wrap 한 줄 = 한 줄로 그린다.
+ * 인용 하이라이트는 렌더된 DOM에서 앵커 요소를 찾아 밝힌다.
  */
 function FullText({
   docId,
@@ -314,45 +335,49 @@ function FullText({
   }, [docId])
 
   const cleaned = useMemo(() => (markdown ? cleanRfpMarkdown(markdown) : null), [markdown])
+  const blocks = useMemo(() => (cleaned ? parseRfpBlocks(cleaned) : null), [cleaned])
+  // 목차 줄 오프셋 → 본문 제목 줄 범위. 맵에 있는 목차 줄만 클릭 가능하게 그린다.
+  const tocTargets = useMemo(() => (cleaned ? findTocTargets(cleaned) : null), [cleaned])
 
   // 앵커 텍스트. quote(진짜 발췌문)가 있으면 최우선 — 지금 백엔드는 안 주지만 계약이
   // 바뀌어 주기 시작하면 자동으로 더 정확한 쪽을 쓴다. 없으면 섹션 제목 줄을 앵커로
-  // 삼는다(findSectionLine 주석 참고). 제목 줄을 못 찾으면 null — 조용히 하이라이트
-  // 없이 원문만 보여준다. 억지로 근사 매칭해서 엉뚱한 곳을 밝히면 더 나쁘다.
+  // 삼는다(findSectionAnchor 주석 참고 — 브레드크럼 섹션은 세그먼트별 역순 매칭).
+  // 제목 줄을 못 찾으면 null — 조용히 하이라이트 없이 원문만 보여준다. 억지로 근사
+  // 매칭해서 엉뚱한 곳을 밝히면 더 나쁘다.
   const anchor = useMemo(() => {
     if (!cleaned) return null
     if (quote) return { text: quote, kind: 'quote' as const }
     if (!section) return null
-    const range = findSectionLine(cleaned, section)
+    const range = findSectionAnchor(cleaned, section)
     return range ? { text: cleaned.slice(range.start, range.end), kind: 'section' as const } : null
   }, [cleaned, quote, section])
 
-  // 렌더된 DOM에서 앵커 요소를 찾아 플래시하고, 다음 프레임에 스크롤한다(하이라이트가
-  // 그려진 뒤에야 위치가 잡힌다). nonce가 의존성에 있어 같은 인용을 다시 눌러도 다시 돈다.
+  // 렌더된 DOM에서 앵커 요소를 찾아 플래시+스크롤. nonce가 의존성에 있어 같은 인용을
+  // 다시 눌러도 다시 돈다.
   useLayoutEffect(() => {
     const body = bodyRef.current
     const box = scrollRef.current
     if (!anchor || !body || !box) return
     const el = findAnchorElement(body, anchor.text, anchor.kind)
     if (!el) return
-    // 재클릭 시 애니메이션이 다시 돌게: 이전 플래시를 지우고 리플로를 강제한 뒤 다시 단다.
-    for (const prev of body.querySelectorAll('.cite-flash')) prev.classList.remove('cite-flash')
-    void el.offsetWidth
-    el.classList.add('cite-flash')
-    const id = requestAnimationFrame(() => {
-      const top =
-        el.getBoundingClientRect().top -
-        box.getBoundingClientRect().top +
-        box.scrollTop -
-        box.clientHeight * 0.35
-      box.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
-    })
-    return () => cancelAnimationFrame(id)
+    return flashAndScroll(el, body, box)
   }, [anchor, nonce, scrollRef])
+
+  // 목차 클릭 → 본문 제목 줄로 점프. 인용 점프와 같은 스크롤+형광펜 동작을 재사용한다.
+  const jumpToRange = useCallback(
+    (range: { start: number; end: number }) => {
+      const body = bodyRef.current
+      const box = scrollRef.current
+      if (!cleaned || !body || !box) return
+      const el = findAnchorElement(body, cleaned.slice(range.start, range.end), 'section')
+      if (el) flashAndScroll(el, body, box)
+    },
+    [cleaned, scrollRef],
+  )
 
   if (error) return <p className="text-xs text-danger">{error}</p>
 
-  if (!cleaned) {
+  if (!blocks || !tocTargets) {
     return (
       <div className="space-y-2">
         <div className="h-3 w-11/12 animate-pulse rounded-sm bg-muted" />
@@ -367,9 +392,92 @@ function FullText({
       ref={bodyRef}
       className="text-[13px] leading-relaxed text-foreground [word-break:keep-all]"
     >
-      <Markdown remarkPlugins={[remarkGfm]} components={viewerComponents}>
-        {cleaned}
-      </Markdown>
+      {blocks.map((block, i) => (
+        <RfpBlockView key={i} block={block} tocTargets={tocTargets} onJump={jumpToRange} />
+      ))}
     </div>
   )
+}
+
+/**
+ * 정돈된 원문 블록 하나의 렌더.
+ *
+ * - table: 모든 행의 모든 셀을 그 행의 셀 수 그대로 <table>에 싣는다. GFM처럼 헤더 열
+ *   수에 맞춰 셀을 버리지 않는다 — 행마다 열 수가 달라도 유실 없이 그대로다.
+ * - heading: 정리 단계가 만든 섹션 제목. 전역 h1–h3엔 라틴 전용 세리프(font-heading)가
+ *   걸려 있어 한글이 시스템 세리프로 폴백돼 깨져 보인다 — 원문 뷰어 범위에선 font-sans를
+ *   명시해 본문 폰트로 그린다.
+ * - lines: 원문 줄바꿈 그대로 한 줄 = 한 <p>, pre-wrap. 마크다운 재조판 없음.
+ *   목차 줄(tocTargets에 있는 줄)만 클릭 가능하게 만들어 본문 제목으로 점프시킨다.
+ */
+function RfpBlockView({
+  block,
+  tocTargets,
+  onJump,
+}: {
+  block: RfpBlock
+  tocTargets: Map<number, { start: number; end: number }>
+  onJump: (range: { start: number; end: number }) => void
+}) {
+  const cellClass = 'border border-border px-2 py-1.5 whitespace-pre-wrap align-top'
+
+  switch (block.type) {
+    case 'heading':
+      return <h2 className="mt-5 mb-2 font-sans text-[15px] font-bold">{block.text}</h2>
+    case 'bold':
+      return <p className="my-2 font-bold">{block.text}</p>
+    case 'table':
+      return (
+        <div className="my-3 overflow-x-auto">
+          <table className="w-full border-collapse text-[12.5px]">
+            {block.header && (
+              <thead>
+                <tr>
+                  {block.header.map((cell, i) => (
+                    <th key={i} className={cn(cellClass, 'bg-secondary text-left font-semibold')}>
+                      {cell}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {block.rows.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => (
+                    <td key={ci} className={cellClass}>
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    case 'lines':
+      return (
+        <>
+          {block.lines.map((line) => {
+            if (line.text.trim() === '') return <p key={line.offset} className="h-3" />
+            const target = tocTargets.get(line.offset)
+            return (
+              <p key={line.offset} className="my-0.5 whitespace-pre-wrap">
+                {target ? (
+                  <button
+                    onClick={() => onJump(target)}
+                    title="본문의 이 섹션으로 이동"
+                    className="cursor-pointer text-left underline-offset-3 transition-colors hover:text-primary hover:underline"
+                  >
+                    {line.text}
+                  </button>
+                ) : (
+                  line.text
+                )}
+              </p>
+            )
+          })}
+        </>
+      )
+  }
 }

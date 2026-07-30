@@ -119,6 +119,83 @@ export function cleanRfpMarkdown(markdown: string): string {
 }
 
 /**
+ * 정돈된 원문을 렌더 블록으로 가른다 — 표 블록만 표로 그리고 나머지는 원문 줄 그대로.
+ *
+ * GFM 마크다운 렌더에 통째로 맡기지 않는 이유(둘 다 실사용에서 겪은 문제):
+ *  1) GFM 파이프 표는 **헤더 열 수를 초과하는 셀을 버린다**. hwp 추출 표는 헤더 3열에
+ *     본문 10열 같은 비정형이 흔해서 셀이 통째로 사라지거나 엉뚱한 열에 붙는다.
+ *     여기서는 모든 행의 모든 셀을 그 행의 셀 수 그대로 보존한다 — 무손실이 최우선.
+ *  2) 문단·리스트 파싱이 원문 줄바꿈·번호를 재해석해 원문과 다르게 조판된다.
+ *     표·헤딩이 아닌 줄은 전부 lines 블록으로 묶어 한 줄 = 한 줄로 그대로 그린다.
+ */
+export type RfpLine = { text: string; offset: number }
+
+export type RfpBlock =
+  | { type: 'table'; header: string[] | null; rows: string[][] }
+  | { type: 'heading'; text: string }
+  | { type: 'bold'; text: string }
+  | { type: 'lines'; lines: RfpLine[] }
+
+export function parseRfpBlocks(cleaned: string): RfpBlock[] {
+  const lines = cleaned.split('\n')
+  const blocks: RfpBlock[] = []
+  let textRun: RfpLine[] = []
+
+  const flushText = () => {
+    // 앞뒤 빈 줄은 블록 간 마진이 대신하므로 걷어낸다(내용 줄은 그대로).
+    while (textRun.length > 0 && textRun[0].text.trim() === '') textRun.shift()
+    while (textRun.length > 0 && textRun[textRun.length - 1].text.trim() === '') textRun.pop()
+    if (textRun.length > 0) blocks.push({ type: 'lines', lines: textRun })
+    textRun = []
+  }
+
+  // 각 줄의 cleaned 내 문자 오프셋 — findSectionLine이 돌려주는 범위와 같은 좌표계라
+  // "이 줄이 문서 앞 10%(목차 영역)인가" 같은 판정에 그대로 쓴다.
+  let offset = 0
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const lineOffset = offset
+    offset += line.length + 1
+
+    if (isTableRow(line)) {
+      flushText()
+      // 연속한 표 행을 한 블록으로. 구분선은 렌더하지 않지만, 첫 행 바로 뒤의
+      // 구분선은 "첫 행이 헤더"라는 신호로만 쓴다.
+      const raw: string[] = [line]
+      while (i + 1 < lines.length && isTableRow(lines[i + 1])) {
+        i++
+        raw.push(lines[i])
+        offset += lines[i].length + 1
+      }
+      const hasHeader = raw.length >= 2 && !isSeparatorRow(raw[0]) && isSeparatorRow(raw[1])
+      const cells = raw.filter((r) => !isSeparatorRow(r)).map((r) => rowCells(r) ?? [])
+      if (hasHeader) blocks.push({ type: 'table', header: cells[0], rows: cells.slice(1) })
+      else blocks.push({ type: 'table', header: null, rows: cells })
+      continue
+    }
+
+    const heading = line.match(/^\s*#{1,6}\s+(.*)$/)
+    if (heading) {
+      flushText()
+      blocks.push({ type: 'heading', text: heading[1].trim() })
+      continue
+    }
+
+    // cleanRfpMarkdown이 장식 상자를 눌러 만든 "**제목**" 한 줄짜리 굵은 문단.
+    const bold = line.match(/^\s*\*\*(.+)\*\*\s*$/)
+    if (bold) {
+      flushText()
+      blocks.push({ type: 'bold', text: bold[1].trim() })
+      continue
+    }
+
+    textRun.push({ text: line, offset: lineOffset })
+  }
+  flushText()
+  return blocks
+}
+
+/**
  * "3. 제출서류" · "제3장 사업개요" · "Ⅲ. 평가기준" · "가. 일반사항" 같은 번호 매김 접두.
  * 순수 숫자는 "3." · "3)" · "3.1" 처럼 구분 기호를 요구한다 — 안 그러면 "2026년 …" 같은
  * 본문 줄이 전부 번호 매김으로 오인된다.
@@ -165,7 +242,10 @@ export function findSectionLine(
   markdown: string,
   section: string,
 ): { start: number; end: number } | null {
-  const target = squash(section)
+  // 섹션명 쪽에도 "Ⅲ. "·"3. " 같은 번호 매김이 붙어 온다(브레드크럼 세그먼트·목차 줄).
+  // 본문 줄은 아래에서 번호를 벗겨 비교하므로 타깃도 같은 잣대로 벗긴다 — 안 벗기면
+  // 번호 달린 제목은 영원히 안 맞는다.
+  const target = normalizeAnchorText(section)
   if (!target) return null
 
   const candidates: { start: number; end: number }[] = []
@@ -192,4 +272,59 @@ export function findSectionLine(
   const tocCutoff = markdown.length * 0.1
   const afterToc = candidates.find((c) => c.start >= tocCutoff)
   return afterToc ?? candidates[candidates.length - 1]
+}
+
+/**
+ * 인용 섹션명 → 앵커 줄. findSectionLine에 브레드크럼 처리를 얹은 진입점.
+ *
+ * 백엔드 citations의 `섹션`은 "Ⅲ. 사업자 선정 > □ 입찰참가 자격"처럼 상위 제목까지 이어
+ * 붙인 브레드크럼으로 오는 경우가 많다 — 통짜 문자열은 본문 어느 한 줄과도 일치하지 않아
+ * 그대로는 앵커를 못 찾는다. 구분자(>)로 쪼개 **가장 구체적인 마지막 세그먼트부터 역순으로**
+ * 제목 줄 매칭을 시도하고, 처음 맞는 세그먼트의 줄을 앵커로 쓴다. 전부 실패하면 null —
+ * 억지 근사 매칭으로 엉뚱한 곳을 밝히지 않는다.
+ */
+export function findSectionAnchor(
+  markdown: string,
+  section: string,
+): { start: number; end: number } | null {
+  const segments = section
+    .split('>')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
+  for (let i = segments.length - 1; i >= 0; i--) {
+    const range = findSectionLine(markdown, segments[i])
+    if (range) return range
+  }
+  return null
+}
+
+/**
+ * 목차 줄 → 본문 제목 줄 매핑.
+ *
+ * 문서 앞 10%(findSectionLine의 목차 컷오프와 같은 기준) 안의 줄 중, 꼬리 페이지 번호를
+ * 뗀 나머지를 섹션명 삼아 본문에서 제목 줄이 찾아지는 줄만 골라 {목차 줄 오프셋 → 본문
+ * 제목 줄 범위}로 돌려준다. 뷰어는 이 맵에 있는 줄만 클릭 가능하게 만든다 — 본문에서
+ * 못 찾는 목차 항목은 클릭돼도 갈 곳이 없으니 평문 그대로 둔다.
+ *
+ * 자기 자신(목차 줄)만 매칭된 경우는 제외한다 — 눌러도 제자리인 링크는 링크가 아니다.
+ */
+export function findTocTargets(markdown: string): Map<number, { start: number; end: number }> {
+  const targets = new Map<number, { start: number; end: number }>()
+  const tocCutoff = markdown.length * 0.1
+
+  let offset = 0
+  for (const line of markdown.split('\n')) {
+    const lineOffset = offset
+    offset += line.length + 1
+    if (lineOffset >= tocCutoff) break
+
+    // 목차 줄 꼴: 내용이 있고, 꼬리에 페이지 번호가 붙어 있을 수 있다.
+    // 페이지참조 잔재는 cleanRfpMarkdown이 이미 지웠으므로 "제목 [탭·공백] 숫자"만 남는다.
+    const title = line.replace(/[\s.·…]*\d+\s*$/, '').trim()
+    if (title === '') continue
+
+    const range = findSectionLine(markdown, title)
+    if (range && range.start !== lineOffset) targets.set(lineOffset, range)
+  }
+  return targets
 }
