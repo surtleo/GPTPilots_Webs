@@ -414,7 +414,7 @@ function FullText({
  * 정돈된 원문 블록 하나의 렌더.
  *
  * - table: 모든 행의 모든 셀을 <table>에 싣는다. GFM처럼 헤더 열 수에 맞춰 셀을 버리지
- *   않고, 짧은 행은 파싱 단계에서 표 최대 열 수까지 빈 셀로 패딩돼 한 그리드에 정렬된다.
+ *   않고, 짧은 행은 마지막 셀 colspan으로 표 최대 열 수 그리드에 정렬된다(병합 셀처럼).
  * - heading: 정리 단계가 만든 섹션 제목. 전역 h1–h3엔 라틴 전용 세리프(font-heading)가
  *   걸려 있어 한글이 시스템 세리프로 폴백돼 깨져 보인다 — 원문 뷰어 범위에선 font-sans를
  *   명시해 본문 폰트로 그린다.
@@ -440,7 +440,13 @@ function RfpBlockView({
       return <h2 className="mt-5 mb-2 font-sans text-[15px] font-bold">{block.text}</h2>
     case 'bold':
       return <p className="my-2 font-bold">{block.text}</p>
-    case 'table':
+    case 'table': {
+      // 짧은 행(hwp 병합 셀 손실)은 마지막 셀을 colspan으로 늘여 원본 병합처럼 그린다.
+      // 빈 셀 패딩으로 채우면 표 전체에 이름 없는 빈 열이 생겨 원문과 다르게 보인다.
+      const span = (row: string[], i: number) =>
+        i === row.length - 1 && row.length < block.maxCols
+          ? block.maxCols - row.length + 1
+          : undefined
       return (
         <div className="my-3 overflow-x-auto">
           <table className="w-full border-collapse text-[12.5px]">
@@ -448,7 +454,11 @@ function RfpBlockView({
               <thead>
                 <tr>
                   {block.header.map((cell, i) => (
-                    <th key={i} className={cn(cellClass, 'bg-secondary text-left font-semibold')}>
+                    <th
+                      key={i}
+                      colSpan={span(block.header!, i)}
+                      className={cn(cellClass, 'bg-secondary text-left font-semibold')}
+                    >
                       {cell}
                     </th>
                   ))}
@@ -459,7 +469,7 @@ function RfpBlockView({
               {block.rows.map((row, ri) => (
                 <tr key={ri}>
                   {row.map((cell, ci) => (
-                    <td key={ci} className={cellClass}>
+                    <td key={ci} colSpan={span(row, ci)} className={cellClass}>
                       {cell}
                     </td>
                   ))}
@@ -469,6 +479,7 @@ function RfpBlockView({
           </table>
         </div>
       )
+    }
     case 'lines':
       return (
         <>

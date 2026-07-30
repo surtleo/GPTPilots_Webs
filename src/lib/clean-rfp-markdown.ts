@@ -132,7 +132,7 @@ export function cleanRfpMarkdown(markdown: string): string {
 export type RfpLine = { text: string; offset: number }
 
 export type RfpBlock =
-  | { type: 'table'; header: string[] | null; rows: string[][] }
+  | { type: 'table'; header: string[] | null; rows: string[][]; maxCols: number }
   | { type: 'heading'; text: string }
   | { type: 'bold'; text: string }
   | { type: 'lines'; lines: RfpLine[] }
@@ -172,14 +172,13 @@ export function parseRfpBlocks(cleaned: string): RfpBlock[] {
       const cells = raw.filter((r) => !isSeparatorRow(r)).map((r) => rowCells(r) ?? [])
       // hwp 병합셀 손실로 행마다 셀 수가 제각각이다(헤더 3셀에 데이터 행 28셀 같은 표도
       // 실재한다). 짧은 행을 그대로 그리면 뒤쪽 열에 td가 아예 없어 테두리가 끊긴 채
-      // 매달린 셀로 보이므로, 표 최대 열 수까지 빈 문자열 셀로 패딩해 한 그리드에 맞춘다.
-      // 채워진 셀 내용은 건드리지 않는다 — 무손실 원칙 그대로.
+      // 매달린 셀로 보이므로 maxCols를 함께 넘긴다. 빈 문자열 셀로 패딩하지 않는 이유:
+      // 패딩하면 hwp에서 병합 셀이던 자리마다 "이름 없는 빈 열"이 표 전체에 생긴다(실사용
+      // 불만). 렌더 쪽에서 짧은 행의 마지막 셀을 colspan으로 늘여 원본 병합처럼 그린다.
+      // 셀 내용은 건드리지 않는다 — 무손실 원칙 그대로.
       const maxCols = Math.max(0, ...cells.map((r) => r.length))
-      const padded = cells.map((r) =>
-        r.length < maxCols ? [...r, ...Array<string>(maxCols - r.length).fill('')] : r,
-      )
-      if (hasHeader) blocks.push({ type: 'table', header: padded[0], rows: padded.slice(1) })
-      else blocks.push({ type: 'table', header: null, rows: padded })
+      if (hasHeader) blocks.push({ type: 'table', header: cells[0], rows: cells.slice(1), maxCols })
+      else blocks.push({ type: 'table', header: null, rows: cells, maxCols })
       continue
     }
 
