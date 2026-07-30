@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, X } from 'lucide-react'
+import { Check, ChevronDown, RotateCcw, X } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -217,6 +217,8 @@ export function ProfileView() {
           <p className="mt-0.5 text-center text-xs text-muted-foreground">
             입력하는 즉시 자동 저장돼요 — 저장 버튼이 없는 이유예요.
           </p>
+
+          <ResetProfile />
         </div>
       </div>
     </div>
@@ -228,18 +230,54 @@ function CheckedSummary() {
   const { profile, setProfile } = useProfile()
   const checked = profile.qualifications
 
+  // 대기업집단 답변을 여기 함께 보여주는 이유(2026-07-30 실사용 문제):
+  // 이 답변 하나가 추천 대부분을 막을 수 있는데("예"면 공고 72%에서 참가 불가), 정작
+  // 접힌 유형 안에 있어서 열어보지 않으면 뭘 골랐는지 알 수 없었다. 실제로 테스트 중
+  // "예"를 골라둔 것이 남아 있어 "참가불가가 너무 많다"는 혼란이 생겼다.
+  // 영향이 가장 큰 설정이 가장 안 보이면 안 된다 → 요약에 올리고, "예"는 빨갛게 띄운다.
+  const DAEGI_LABEL: Record<string, { text: string; cls: string }> = {
+    yes: {
+      text: '대기업집단 소속: 예 — 상당수 공고에 참가 불가',
+      cls: 'bg-danger text-danger-foreground',
+    },
+    no: { text: '대기업집단 소속: 아니오', cls: 'bg-accent text-accent-foreground' },
+    unknown: {
+      text: '대기업집단 소속: 모름 — 확인 못 함으로 처리',
+      cls: 'bg-warning-soft text-warning',
+    },
+  }
+  const daegi = profile.daegi ? DAEGI_LABEL[profile.daegi] : null
+  const total = checked.length + (daegi ? 1 : 0)
+
   return (
     <div className="mb-3 rounded-[10px] border border-border bg-secondary px-3 py-2.5">
       <div className="mb-1.5 flex items-baseline justify-between">
         <span className="text-[11.5px] font-bold">✓ 체크한 항목</span>
-        <span className="font-mono text-[10.5px] text-muted-foreground">{checked.length}개</span>
+        <span className="font-mono text-[10.5px] text-muted-foreground">{total}개</span>
       </div>
-      {checked.length === 0 ? (
+      {total === 0 ? (
         <p className="text-[11px] text-muted-foreground">
           아직 없어요 — 아래 유형을 눌러 골라보세요.
         </p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
+          {daegi && (
+            <span
+              className={cn(
+                'flex max-w-full items-center gap-1 rounded-full py-0.5 pr-1 pl-2.5 text-[11px] font-semibold',
+                daegi.cls,
+              )}
+            >
+              <span className="truncate">{daegi.text}</span>
+              <button
+                onClick={() => setProfile({ daegi: null })}
+                aria-label="대기업집단 답변 지우기"
+                className="grid size-3.5 shrink-0 place-items-center rounded-full opacity-60 transition-opacity hover:opacity-100"
+              >
+                <X className="size-2.5" />
+              </button>
+            </span>
+          )}
           {checked.map((q) => (
             <span
               key={q}
@@ -497,6 +535,66 @@ function RegionCard() {
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * 프로필 초기화 — 두 단계로 확인받는다.
+ *
+ * 한 번에 지우지 않는 이유: 자유서술까지 통째로 날아가는데 되돌릴 방법이 없다(자동 저장이라
+ * 이전 값이 남지 않는다). 실수로 한 번 누르는 것만으로 공들여 쓴 소개가 사라지면 안 된다.
+ */
+function ResetProfile() {
+  const { reset } = useProfile()
+  const [asking, setAsking] = useState(false)
+
+  // 확인 상태로 두고 다른 걸 하다 잊으면 다음에 무심코 "지우기"를 누르게 된다 — 10초 뒤 되돌린다.
+  useEffect(() => {
+    if (!asking) return
+    const t = setTimeout(() => setAsking(false), 10_000)
+    return () => clearTimeout(t)
+  }, [asking])
+
+  if (!asking) {
+    return (
+      <div className="mt-1 flex justify-center">
+        <button
+          onClick={() => setAsking(true)}
+          className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11.5px] text-muted-foreground transition-colors hover:bg-secondary hover:text-danger"
+        >
+          <RotateCcw className="size-3" />
+          프로필 초기화
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-1 rounded-[10px] border border-danger bg-danger-soft px-3.5 py-3">
+      <p className="text-[12.5px] font-semibold text-danger">
+        적어둔 내용을 전부 지울까요? 되돌릴 수 없어요.
+      </p>
+      <p className="mt-0.5 mb-2.5 text-[11px] text-muted-foreground">
+        회사 소개·소재지·주력 분야·실적·체크한 자격이 모두 비워집니다.
+      </p>
+      <div className="flex gap-1.5">
+        <button
+          onClick={() => {
+            reset()
+            setAsking(false)
+          }}
+          className="rounded-lg bg-danger px-3 py-1.5 text-xs font-bold text-danger-foreground transition-[filter] hover:brightness-110"
+        >
+          전부 지우기
+        </button>
+        <button
+          onClick={() => setAsking(false)}
+          className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold transition-colors hover:bg-secondary"
+        >
+          취소
+        </button>
+      </div>
+    </div>
   )
 }
 

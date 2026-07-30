@@ -151,21 +151,28 @@ export function ChatFlowsProvider({ children }: { children: ReactNode }) {
     // 확인필요는 미충족 요건이 1건 이상 있다는 판정이다(src/eligibility.py `_build_verdict`).
     // 이걸 전부 "참가 가능"으로 재서술하면 프론트가 판정을 바꿔 말하는 셈이 된다.
     const blocked = items.length - eligibleCount(items)
+    // 참가불가가 나온 원인이 사용자 본인의 답변일 때는 그걸 짚어준다(2026-07-30 실사용 문제).
+    // 대기업집단 "예"는 공고 72%에서 참가 불가로 이어지는데, 그 답변이 접힌 유형 안에 있어
+    // 사용자가 자기가 뭘 골랐는지 모른 채 "참가불가가 왜 이렇게 많지"만 겪었다.
+    const daegiHint =
+      profile.daegi === 'yes'
+        ? ' 대기업집단에 “예”로 답하셨기 때문이에요 — 아니라면 프로필에서 고치고 다시 찾아주세요.'
+        : ''
     pushLocal(
       'assistant',
       items.length === 0
         ? '자격이 걸리지 않는 공고를 찾지 못했어요. 회사 소개를 더 구체적으로 적거나 보유 자격을 체크하시면 결과가 달라질 수 있어요.'
         : eligibleCount(items) === 0
           ? // 전부 참가불가인 경우 — "담아뒀어요"라고 하면 지원할 수 있는 것처럼 읽힌다
-            `대조해봤더니 찾은 ${items.length}건 전부 참여가 막혀 있어요(${verdictBreakdown(items)}). 왼쪽 목록에서 빨간 뱃지를 눌러 어떤 조항 때문인지 보실 수 있어요. 프로필의 기업 규모 답변을 바꾸면 결과가 달라질 수 있어요.`
+            `대조해봤더니 찾은 ${items.length}건 전부 참여가 막혀 있어요(${verdictBreakdown(items)}). 왼쪽 목록에서 빨간 뱃지를 눌러 어떤 조항 때문인지 보실 수 있어요.${daegiHint || ' 프로필의 기업 규모 답변을 바꾸면 결과가 달라질 수 있어요.'}`
           : `참가자격을 대조해 ${verdictBreakdown(items)}을 왼쪽 맞춤 공고에 담아뒀어요.` +
             (blocked > 0
-              ? ` 참가불가 ${blocked}건은 법적으로 참여가 막힌 공고라 목록 맨 아래에 빨간 뱃지로 뒀어요 — 눌러보시면 어떤 조항 때문인지 나와요.`
+              ? ` 참가불가 ${blocked}건은 법적으로 참여가 막힌 공고라 목록 맨 아래에 빨간 뱃지로 뒀어요 — 눌러보시면 어떤 조항 때문인지 나와요.${daegiHint}`
               : '') +
             ` 확인필요는 미충족 요건이 남아 있다는 뜻이라 뱃지를 꼭 봐주세요. 체크하시면 그 공고를 근거로 답하고, 준비 점검·비교표·핵심 정리도 만들 수 있어요.`,
       { sessionId },
     )
-  }, [recoLoading, recoError, progress, items, patchCard, pushLocal])
+  }, [recoLoading, recoError, progress, items, patchCard, pushLocal, profile.daegi])
 
   const runReco = useCallback(
     (text = '맞춤 공고 찾아줘') => {
