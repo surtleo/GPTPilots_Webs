@@ -10,7 +10,7 @@ import { citeIndexFromHref, CiteChip, linkifyCitations } from '@/components/chat
  * assistant 답변용 마크다운 렌더러 — GFM 표(배점표 등)·`출처` 포함.
  * 데이터 밀집 영역(표·코드)은 sans/mono로 가독성 우선 (spec §13-4 이탈 승인).
  */
-const components: Components = {
+export const markdownComponents: Components = {
   p: ({ node: _node, ...props }) => <p className="my-2 leading-relaxed" {...props} />,
   h1: ({ node: _node, ...props }) => (
     <h3 className="mt-4 mb-2 font-heading text-lg font-semibold" {...props} />
@@ -84,7 +84,7 @@ export function MarkdownMessage({
     () =>
       refs
         ? {
-            ...components,
+            ...markdownComponents,
             a: ({ node: _node, href, children, ...props }) => {
               const n = citeIndexFromHref(href)
               const citation = n != null ? refs.get(n) : undefined
@@ -102,7 +102,7 @@ export function MarkdownMessage({
               )
             },
           }
-        : components,
+        : markdownComponents,
     [refs],
   )
 
