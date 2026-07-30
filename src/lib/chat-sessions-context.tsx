@@ -89,20 +89,32 @@ interface ChatSessionsValue {
    * API를 태우지 않고 메시지만 대화에 남긴다.
    * "맞춤 공고 3건 찾았어요" 같은, 대화 흐름을 잇지만 LLM을 부를 이유는 없는 안내용.
    * 만든 메시지 id를 돌려준다 — 카드는 나중에 갱신해야 해서(진행 단계·질문 답변) 필요하다.
+   *
+   * sessionId를 주면 그 세션에 쓰고, 지금 보고 있는 세션으로 화면을 튕기지 않는다 —
+   * 추천 대조처럼 1~2분 걸리는 흐름이 끝났을 때, 그사이 사용자가 다른 대화로 넘어갔다면
+   * 결과는 흐름을 시작한 세션에 남아야지 지금 보고 있는 엉뚱한 세션에 끼어들면 안 된다.
+   * 생략하면 기존처럼 지금 보고 있는 세션에 쓰고 그쪽으로 전환한다(사용자가 직접 친 말 등).
    */
   pushLocal: (
     role: ChatRole,
     content: string,
-    opts?: { meta?: Partial<AssistantMeta>; card?: MessageCard },
+    opts?: { meta?: Partial<AssistantMeta>; card?: MessageCard; sessionId?: string },
   ) => string
-  /** 이미 띄운 카드를 갱신한다 — 진행 단계 완료 표시, 확인 질문에 답한 표시 등. */
-  patchCard: (messageId: string, patch: Partial<MessageCard>) => void
+  /** 이미 띄운 카드를 갱신한다 — 진행 단계 완료 표시, 확인 질문에 답한 표시 등.
+   *  sessionId를 주면 그 세션의 카드를 갱신한다(생략하면 지금 보고 있는 세션). */
+  patchCard: (messageId: string, patch: Partial<MessageCard>, sessionId?: string) => void
   /**
    * 활성 문서(사이드바 A 슬롯)가 바뀌었을 때 chat-panel.tsx가 호출한다.
    * 현재 세션의 근거 문서만 갈아끼우고 대화는 그대로 유지한다 — 새 세션은 만들지 않는다.
    * 새 대화는 사용자가 명시적으로 startNew를 눌렀을 때만 시작한다.
    */
   setActiveDoc: (docId: string | null, title: string | null) => void
+  /**
+   * 지금 이 순간의 currentId를 동기적으로 읽는다. currentId(state)는 리액트 리렌더를
+   * 거쳐야 갱신되는데, 배경에서 도는 흐름(추천 대조 등)이 "자신이 어느 세션에서 시작했는지"를
+   * 정확히 잡아둬야 할 때는 그 텀도 위험하다 — ref로 즉시 값을 준다.
+   */
+  peekCurrentId: () => string | null
 }
 
 const ChatSessionsContext = createContext<ChatSessionsValue | null>(null)
@@ -168,6 +180,10 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<ChatError | null>(null)
   const idRef = useRef(0)
+  // currentId(state)를 그대로 미러링하되 항상 동기적으로 최신이다 — setCurrentId를 부르는
+  // 모든 자리에서 같이 갱신한다. pushLocal/patchCard가 "지금 세션"을 판단할 때 state 대신
+  // 이 ref를 쓰면, 같은 틱 안에서 세션이 막 만들어진 직후에도(리렌더 전) 정확한 값을 읽는다.
+  const currentIdRef = useRef<string | null>(initial.current.currentId)
   // 메시지 id에 이 탭에서만 쓰는 접두사를 붙인다. 카운터만 쓰면 새로고침 때 0으로 되돌아가는데
   // 세션은 localStorage에 남아 있어서, 같은 대화 안에 m1이 두 개 생긴다 — React key가 겹치는
   // 것도 문제지만, 카드 갱신(patchCard)·확인 질문 답변이 id로 대상을 찾기 때문에 새로 띄운
@@ -195,6 +211,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     setSessions((prev) => {
       const fresh = emptySession(null, null)
       const next = [fresh, ...prev].slice(0, MAX_SESSIONS)
+      currentIdRef.current = fresh.id
       setCurrentId(fresh.id)
       persist(next, fresh.id)
       return next
@@ -204,6 +221,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
 
   const select = useCallback(
     (id: string) => {
+      currentIdRef.current = id
       setCurrentId(id)
       setError(null)
       persist(sessions, id)
@@ -215,18 +233,17 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       setSessions((prev) => {
         const next = prev.filter((s) => s.id !== id)
-        setCurrentId((prevCurrentId) => {
-          if (prevCurrentId !== id) {
-            persist(next, prevCurrentId)
-            return prevCurrentId // 지금 보던 게 아니면 currentId는 그대로
-          }
-          // 지금 보던 대화를 지운 경우 — 남은 것 중 제일 최근 것으로, 없으면 빈 상태.
-          const nextCurrent = next.length
-            ? next.reduce((a, b) => (a.updatedAt > b.updatedAt ? a : b)).id
-            : null
-          persist(next, nextCurrent)
-          return nextCurrent
-        })
+        if (currentIdRef.current !== id) {
+          persist(next, currentIdRef.current) // 지금 보던 게 아니면 currentId는 그대로
+          return next
+        }
+        // 지금 보던 대화를 지운 경우 — 남은 것 중 제일 최근 것으로, 없으면 빈 상태.
+        const nextCurrent = next.length
+          ? next.reduce((a, b) => (a.updatedAt > b.updatedAt ? a : b)).id
+          : null
+        currentIdRef.current = nextCurrent
+        setCurrentId(nextCurrent)
+        persist(next, nextCurrent)
         return next
       })
     },
@@ -236,7 +253,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
   const setActiveDoc = useCallback(
     (docId: string | null, title: string | null) => {
       setSessions((prev) => {
-        const cur = prev.find((s) => s.id === currentId)
+        const cur = prev.find((s) => s.id === currentIdRef.current)
         if (cur && cur.activeDocId === docId) return prev // 이미 같음
         // 예전엔 "대화가 진행 중이면 히스토리에 남기고 새 세션 시작"이었다 — 문서가 바뀌면
         // 대화 맥락도 끊긴다고 봤기 때문이다. 그런데 A 슬롯은 공고를 담거나 원문을 여는
@@ -244,6 +261,8 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         // 보였다(2026-07-30 보고). 백엔드 /ask는 매 요청에 히스토리와 doc_id를 함께 받으니
         // 문서를 바꿔도 이어서 물을 수 있다 — 근거 문서만 갈아끼우고 대화는 유지한다.
         // 새 세션은 사용자가 "새 대화"(startNew)를 눌렀을 때만 만든다.
+        // (세션 id는 origin/main의 백그라운드 흐름 세션-스코프 수정에 맞춰 ref로 읽고,
+        //  갱신 시 ref·state를 함께 맞춘다.)
         const patched: ChatSession = cur
           ? {
               ...cur,
@@ -256,24 +275,26 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
           : emptySession(docId, title)
         const rest = prev.filter((s) => s.id !== patched.id)
         const next = [patched, ...rest].slice(0, MAX_SESSIONS)
+        currentIdRef.current = patched.id
         setCurrentId(patched.id)
         persist(next, patched.id)
         return next
       })
     },
-    [currentId, persist],
+    [persist],
   )
 
   const pushLocal = useCallback(
     (
       role: ChatRole,
       content: string,
-      opts?: { meta?: Partial<AssistantMeta>; card?: MessageCard },
+      opts?: { meta?: Partial<AssistantMeta>; card?: MessageCard; sessionId?: string },
     ) => {
       // id는 updater 밖에서 만든다 — StrictMode에서 updater가 두 번 돌면 id가 중복된다.
       const id = nextMsgId()
+      const targetId = opts?.sessionId ?? currentIdRef.current
       setSessions((prev) => {
-        const cur = prev.find((s) => s.id === currentId)
+        const cur = prev.find((s) => s.id === targetId)
         const base = cur ?? emptySession(null, null)
         const msg: ChatMessage = {
           id,
@@ -300,20 +321,27 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         const next = cur
           ? prev.map((s) => (s.id === patched.id ? patched : s))
           : [patched, ...prev].slice(0, MAX_SESSIONS)
-        setCurrentId(patched.id)
-        persist(next, patched.id)
+        // sessionId를 명시했는데 그게 지금 보고 있는 세션이 아니면, 화면을 그쪽으로 튕기지
+        // 않는다 — 배경 흐름(추천 대조 등)이 끝났을 때 다른 대화를 보고 있던 화면이
+        // 갑자기 바뀌면 안 된다. 명시하지 않았으면(사용자가 직접 친 말 등) 기존처럼 전환.
+        const shouldFollow = !opts?.sessionId || opts.sessionId === currentIdRef.current
+        const nextCurrentId = shouldFollow ? patched.id : currentIdRef.current
+        if (shouldFollow) currentIdRef.current = nextCurrentId
+        setCurrentId(nextCurrentId)
+        persist(next, nextCurrentId)
         return next
       })
       return id
     },
-    [currentId, persist],
+    [persist],
   )
 
   const patchCard = useCallback(
-    (messageId: string, patch: Partial<MessageCard>) => {
+    (messageId: string, patch: Partial<MessageCard>, sessionId?: string) => {
       setSessions((prev) => {
+        const targetId = sessionId ?? currentIdRef.current
         const next = prev.map((s) =>
-          s.id === currentId
+          s.id === targetId
             ? {
                 ...s,
                 messages: s.messages.map((m) =>
@@ -324,12 +352,14 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
               }
             : s,
         )
-        persist(next, currentId)
+        persist(next, currentIdRef.current)
         return next
       })
     },
-    [currentId, persist],
+    [persist],
   )
+
+  const peekCurrentId = useCallback(() => currentIdRef.current, [])
 
   const send = useCallback(
     async (raw: string, opts?: { displayText?: string }): Promise<AskResponse | null> => {
@@ -434,6 +464,7 @@ export function ChatSessionsProvider({ children }: { children: ReactNode }) {
         pushLocal,
         patchCard,
         setActiveDoc,
+        peekCurrentId,
       }}
     >
       {children}

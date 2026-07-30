@@ -146,7 +146,10 @@ export function ChatPanel({
       if (/맞춤|추천/.test(text)) return runReco(text)
       if (/비교/.test(text) && docs.length >= 2) return runCompare(text)
       if (/(준비|점검)/.test(text) && docs.length >= 1) return runReady(text)
-      if (/정리/.test(text) && docs.length >= 1) return runSummary()
+      // text를 안 넘기면 사용자가 실제로 친 말("계약 조건 좀 정리해줘" 등)이 채팅에도
+      // 안 남고 화면엔 기본 문구("핵심 정리해줘")만 보인다 — runReco·runCompare·runReady와
+      // 똑같이 실제 입력을 넘긴다.
+      if (/정리/.test(text) && docs.length >= 1) return runSummary(text)
       await send(text)
     },
     [draft, loading, busy, docs.length, runReco, runCompare, runSummary, runReady, send],
